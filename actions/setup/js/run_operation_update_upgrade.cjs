@@ -63,10 +63,14 @@ async function main() {
 
   const isUpgrade = operation === "upgrade";
 
-  // Run gh aw update or gh aw upgrade (--no-compile: do not touch lock files)
-  const fullCmd = [bin, ...prefixArgs, operation, "--no-compile"].join(" ");
+  // Run gh aw update or gh aw upgrade without extra flags so all files are
+  // updated (codemods, action pins, lock files, etc.).  Changed files under
+  // .github/workflows/ are detected afterwards but excluded from staging so
+  // the GitHub Actions actor – which is not permitted to commit workflow
+  // files – does not attempt to include them in the pull request.
+  const fullCmd = [bin, ...prefixArgs, operation].join(" ");
   core.info(`Running: ${fullCmd}`);
-  const exitCode = await exec.exec(bin, [...prefixArgs, operation, "--no-compile"]);
+  const exitCode = await exec.exec(bin, [...prefixArgs, operation]);
   if (exitCode !== 0) {
     throw new Error(`Command '${fullCmd}' failed with exit code ${exitCode}`);
   }
@@ -93,11 +97,12 @@ async function main() {
     return;
   }
 
-  // Exclude .github/workflows/*.yml files: they cannot be modified by the
-  // GitHub Actions bot and including them would cause the PR checks to fail.
+  // Exclude ALL .github/workflows/ files: the GitHub Actions actor is not
+  // permitted to commit any changes to workflow files (neither compiled .yml
+  // files nor source .md files).  Including them would cause PR checks to fail.
   const filesToStage = changedFiles.filter(file => {
     const lower = file.toLowerCase();
-    return !(lower.startsWith(".github/workflows/") && (lower.endsWith(".yml") || lower.endsWith(".yaml")));
+    return !lower.startsWith(".github/workflows/");
   });
 
   if (filesToStage.length === 0) {
@@ -184,7 +189,7 @@ async function main() {
   const operationLabel = isUpgrade ? "Upgrade" : "Update";
   const prBody = `## Agentic Workflows ${operationLabel}
 
-The \`gh aw ${operation} --no-compile\` command was run automatically and produced the following changes:
+The \`gh aw ${operation}\` command was run automatically and produced the following changes:
 
 ${fileList}
 
