@@ -3,7 +3,10 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+
+	"golang.org/x/mod/semver"
 
 	"github.com/github/gh-aw/pkg/console"
 	"github.com/github/gh-aw/pkg/logger"
@@ -12,73 +15,75 @@ import (
 
 var updateExtensionCheckLog = logger.New("cli:update_extension_check")
 
-// ensureLatestExtensionVersion checks if the current release matches the latest release
-// and issues a warning if an update is needed. This function fails silently if the
-// release URL is not available or blocked.
-func ensureLatestExtensionVersion(verbose bool) error {
-	if verbose {
-		fmt.Fprintln(os.Stderr, console.FormatVerboseMessage("Checking for gh-aw extension updates..."))
-	}
-
-	// Get current version
+// upgradeExtensionIfOutdated checks if a newer version of the gh-aw extension is available
+// and, if so, upgrades it automatically. Returns true if an upgrade was performed.
+//
+// When true is returned the CURRENTLY RUNNING PROCESS still has the old version baked in.
+// The caller should re-launch the freshly-installed binary so that subsequent work
+// (e.g. lock-file compilation) uses the correct new version string.
+func upgradeExtensionIfOutdated(verbose bool) (bool, error) {
 	currentVersion := GetVersion()
-	updateExtensionCheckLog.Printf("Current version: %s", currentVersion)
+	updateExtensionCheckLog.Printf("Checking if extension needs upgrade (current: %s)", currentVersion)
 
-	// Skip check for non-release versions (dev builds)
+	// Skip for non-release versions (dev builds)
 	if !workflow.IsReleasedVersion(currentVersion) {
-		updateExtensionCheckLog.Print("Not a released version, skipping update check")
+		updateExtensionCheckLog.Print("Not a released version, skipping upgrade check")
 		if verbose {
-			fmt.Fprintln(os.Stderr, console.FormatInfoMessage("Skipping version check (development build)"))
+			fmt.Fprintln(os.Stderr, console.FormatInfoMessage("Skipping extension upgrade check (development build)"))
 		}
-		return nil
+		return false, nil
 	}
 
 	// Query GitHub API for latest release
 	latestVersion, err := getLatestRelease()
 	if err != nil {
-		// Fail silently - don't block upgrade if we can't check for updates
-		updateExtensionCheckLog.Printf("Failed to check for updates (silently ignoring): %v", err)
+		// Fail silently - don't block the upgrade command if we can't reach GitHub
+		updateExtensionCheckLog.Printf("Failed to check for latest release (silently ignoring): %v", err)
 		if verbose {
-			fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("Could not check for updates: %v", err)))
+			fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("Could not check for extension updates: %v", err)))
 		}
-		return nil
+		return false, nil
 	}
 
 	if latestVersion == "" {
-		updateExtensionCheckLog.Print("Could not determine latest version")
-		return nil
+		updateExtensionCheckLog.Print("Could not determine latest version, skipping upgrade")
+		return false, nil
 	}
 
 	updateExtensionCheckLog.Printf("Latest version: %s", latestVersion)
 
-	// Normalize versions for comparison (remove 'v' prefix)
-	currentVersionNormalized := strings.TrimPrefix(currentVersion, "v")
-	latestVersionNormalized := strings.TrimPrefix(latestVersion, "v")
+	// Ensure both versions have the 'v' prefix required by the semver package.
+	currentSV := "v" + strings.TrimPrefix(currentVersion, "v")
+	latestSV := "v" + strings.TrimPrefix(latestVersion, "v")
 
-	// Compare versions
-	if currentVersionNormalized == latestVersionNormalized {
-		if verbose {
-			fmt.Fprintln(os.Stderr, console.FormatSuccessMessage("✓ gh-aw extension is up to date"))
+	// Already on the latest (or newer) version – use proper semver comparison so
+	// that e.g. "0.10.0" is correctly treated as newer than "0.9.0".
+	if semver.IsValid(currentSV) && semver.IsValid(latestSV) {
+		if semver.Compare(currentSV, latestSV) >= 0 {
+			updateExtensionCheckLog.Print("Extension is already up to date")
+			if verbose {
+				fmt.Fprintln(os.Stderr, console.FormatSuccessMessage("✓ gh-aw extension is up to date"))
+			}
+			return false, nil
 		}
-		updateExtensionCheckLog.Print("Extension is up to date")
-		return nil
+	} else {
+		// Versions are not valid semver; skip unreliable string comparison and
+		// proceed with the upgrade to avoid incorrectly treating an outdated
+		// version as up to date (lexicographic comparison breaks for e.g. "0.9.0" vs "0.10.0").
+		updateExtensionCheckLog.Printf("Non-semver versions detected (current=%q, latest=%q); proceeding with upgrade", currentVersion, latestVersion)
 	}
 
-	// Check if we're on a newer version (development/prerelease)
-	if currentVersionNormalized > latestVersionNormalized {
-		updateExtensionCheckLog.Printf("Current version (%s) appears newer than latest release (%s)", currentVersion, latestVersion)
-		if verbose {
-			fmt.Fprintln(os.Stderr, console.FormatInfoMessage("Running a development or pre-release version"))
-		}
-		return nil
+	// A newer version is available – upgrade automatically
+	updateExtensionCheckLog.Printf("Upgrading extension from %s to %s", currentVersion, latestVersion)
+	fmt.Fprintln(os.Stderr, console.FormatInfoMessage(fmt.Sprintf("Upgrading gh-aw extension from %s to %s...", currentVersion, latestVersion)))
+
+	cmd := exec.Command("gh", "extension", "upgrade", "github/gh-aw")
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("failed to upgrade gh-aw extension: %w", err)
 	}
 
-	// A newer version is available - display warning message (not error)
-	updateExtensionCheckLog.Printf("Newer version available: %s (current: %s)", latestVersion, currentVersion)
-	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, console.FormatWarningMessage(fmt.Sprintf("A newer version of gh-aw is available: %s (current: %s)", latestVersion, currentVersion)))
-	fmt.Fprintln(os.Stderr, console.FormatInfoMessage("Consider upgrading with: gh extension upgrade github/gh-aw"))
-	fmt.Fprintln(os.Stderr, "")
-
-	return nil
+	fmt.Fprintln(os.Stderr, console.FormatSuccessMessage("✓ gh-aw extension upgraded to "+latestVersion))
+	return true, nil
 }
