@@ -98,6 +98,27 @@ func (c *Compiler) setupEngineAndImports(result *parser.FrontmatterResult, clean
 			c.IncrementWarningCount()
 		}
 		engineSetting = c.engineOverride
+		// Update engineConfig.ID so that downstream code (e.g. generateCreateAwInfo) uses
+		// the override engine ID, not the one parsed from the frontmatter.
+		if engineConfig != nil {
+			engineConfig.ID = c.engineOverride
+		}
+	}
+
+	// When the engine is specified in short/string form ("engine: copilot") and no CLI
+	// override is active, inject the corresponding builtin shared-workflow .md as an
+	// import. This makes "engine: copilot" syntactic sugar for importing the builtin
+	// copilot.md, which carries the full engine definition. The engine field is removed
+	// from the frontmatter so the definition comes entirely from the import.
+	if c.engineOverride == "" && isStringFormEngine(result.Frontmatter) && engineSetting != "" {
+		builtinPath := builtinEnginePath(engineSetting)
+		if parser.BuiltinVirtualFileExists(builtinPath) {
+			orchestratorEngineLog.Printf("Injecting builtin engine import: %s", builtinPath)
+			addImportToFrontmatter(result.Frontmatter, builtinPath)
+			delete(result.Frontmatter, "engine")
+			engineSetting = ""
+			engineConfig = nil
+		}
 	}
 
 	// Process imports from frontmatter first (before @include directives)
@@ -197,6 +218,19 @@ func (c *Compiler) setupEngineAndImports(result *parser.FrontmatterResult, clean
 			return nil, fmt.Errorf("failed to extract engine config from included file: %w", err)
 		}
 		engineConfig = extractedConfig
+
+		// If the imported engine is an inline definition (engine.runtime sub-object),
+		// validate and register it in the catalog. This mirrors the handling for inline
+		// definitions declared directly in the main workflow (above).
+		if engineConfig != nil && engineConfig.IsInlineDefinition {
+			if err := c.validateEngineInlineDefinition(engineConfig); err != nil {
+				return nil, err
+			}
+			if err := c.validateEngineAuthDefinition(engineConfig); err != nil {
+				return nil, err
+			}
+			c.registerInlineEngineDefinition(engineConfig)
+		}
 	}
 
 	// Apply the default AI engine setting if not specified
@@ -298,4 +332,44 @@ func (c *Compiler) setupEngineAndImports(result *parser.FrontmatterResult, clean
 		importsResult:      importsResult,
 		configSteps:        configSteps,
 	}, nil
+}
+
+// isStringFormEngine reports whether the "engine" field in the given frontmatter is a
+// plain string (e.g. "engine: copilot"), as opposed to an object with an "id" or
+// "runtime" sub-key.
+func isStringFormEngine(frontmatter map[string]any) bool {
+	engine, exists := frontmatter["engine"]
+	if !exists {
+		return false
+	}
+	_, isString := engine.(string)
+	return isString
+}
+
+// addImportToFrontmatter appends importPath to the "imports" slice in frontmatter.
+// It handles the case where "imports" may be absent, a []any, a []string, or a
+// single string (which is converted to a two-element slice preserving the original value).
+// Any other unexpected type is left unchanged and importPath is not injected.
+func addImportToFrontmatter(frontmatter map[string]any, importPath string) {
+	existing, hasImports := frontmatter["imports"]
+	if !hasImports {
+		frontmatter["imports"] = []any{importPath}
+		return
+	}
+	switch v := existing.(type) {
+	case []any:
+		frontmatter["imports"] = append(v, importPath)
+	case []string:
+		newSlice := make([]any, len(v)+1)
+		for i, s := range v {
+			newSlice[i] = s
+		}
+		newSlice[len(v)] = importPath
+		frontmatter["imports"] = newSlice
+	case string:
+		// Single string import — preserve it and append the new one.
+		frontmatter["imports"] = []any{v, importPath}
+		// For any other unexpected type, leave the field untouched so the
+		// downstream parser can still report its own error for the invalid value.
+	}
 }
