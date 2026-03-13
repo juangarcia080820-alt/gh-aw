@@ -23,7 +23,7 @@
 #
 # Build, test, and release gh-aw extension, then generate and prepend release highlights
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"1ccf2823ac9575a51b506e9740499861d2c0506df37325368f5ef93408b4e946","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"6348d0076a2481a1e8e4d7761038c81f0cd54728f68ffa291a2f818b5c030c7f","strict":true}
 
 name: "Release"
 "on":
@@ -1272,7 +1272,6 @@ jobs:
       - activation
       - config
       - pre_activation
-      - sync_actions
     runs-on: ubuntu-latest
     permissions:
       attestations: write
@@ -1465,19 +1464,4 @@ jobs:
           name: safe-output-items
           path: /tmp/safe-output-items.jsonl
           if-no-files-found: warn
-
-  sync_actions:
-    needs:
-      - activation
-      - config
-      - pre_activation
-      - push_tag
-    permissions:
-      contents: write
-      pull-requests: write
-
-    uses: github/gh-aw-actions/.github/workflows/sync-actions.yml@main
-    with:
-      ref: ${{ needs.config.outputs.release_tag }}
-    secrets: inherit
 

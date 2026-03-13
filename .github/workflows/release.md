@@ -194,18 +194,8 @@ jobs:
           path: dist/
           retention-days: 1
 
-  sync_actions:
-    needs: ["pre_activation", "activation", "config", "push_tag"]
-    uses: github/gh-aw-actions/.github/workflows/sync-actions.yml@main
-    with:
-      ref: ${{ needs.config.outputs.release_tag }}
-    secrets: inherit
-    permissions:
-      contents: write
-      pull-requests: write
-
   release:
-    needs: ["pre_activation", "activation", "config", "sync_actions"]
+    needs: ["pre_activation", "activation", "config"]
     runs-on: ubuntu-latest
     permissions:
       contents: write
