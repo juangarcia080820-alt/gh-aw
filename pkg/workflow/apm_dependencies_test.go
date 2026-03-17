@@ -198,6 +198,40 @@ func TestExtractAPMDependenciesGitHubApp(t *testing.T) {
 	})
 }
 
+func TestExtractAPMDependenciesVersion(t *testing.T) {
+	t.Run("Object format with version field", func(t *testing.T) {
+		frontmatter := map[string]any{
+			"dependencies": map[string]any{
+				"packages": []any{"microsoft/apm-sample-package"},
+				"version":  "v1.0.0",
+			},
+		}
+		result := extractAPMDependenciesFromFrontmatter(frontmatter)
+		require.NotNil(t, result, "Should return non-nil APMDependenciesInfo")
+		assert.Equal(t, "v1.0.0", result.Version, "Version should be extracted from object format")
+	})
+
+	t.Run("Array format has no version field", func(t *testing.T) {
+		frontmatter := map[string]any{
+			"dependencies": []any{"microsoft/apm-sample-package"},
+		}
+		result := extractAPMDependenciesFromFrontmatter(frontmatter)
+		require.NotNil(t, result, "Should return non-nil APMDependenciesInfo")
+		assert.Empty(t, result.Version, "Version should be empty for array format")
+	})
+
+	t.Run("Object format without version uses empty string", func(t *testing.T) {
+		frontmatter := map[string]any{
+			"dependencies": map[string]any{
+				"packages": []any{"microsoft/apm-sample-package"},
+			},
+		}
+		result := extractAPMDependenciesFromFrontmatter(frontmatter)
+		require.NotNil(t, result, "Should return non-nil APMDependenciesInfo")
+		assert.Empty(t, result.Version, "Version should be empty when not specified")
+	})
+}
+
 func TestEngineGetAPMTarget(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -253,6 +287,7 @@ func TestGenerateAPMPackStep(t *testing.T) {
 				"archive: 'true'",
 				"target: copilot",
 				"working-directory: /tmp/gh-aw/apm-workspace",
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 			},
 		},
 		{
@@ -266,6 +301,7 @@ func TestGenerateAPMPackStep(t *testing.T) {
 				"- microsoft/apm-sample-package",
 				"- github/skills/review",
 				"target: claude",
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 			},
 		},
 		{
@@ -274,6 +310,15 @@ func TestGenerateAPMPackStep(t *testing.T) {
 			target:  "all",
 			expectedContains: []string{
 				"target: all",
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
+			},
+		},
+		{
+			name:    "Custom APM version still uses env var reference in step",
+			apmDeps: &APMDependenciesInfo{Packages: []string{"microsoft/apm-sample-package"}, Version: "v1.0.0"},
+			target:  "copilot",
+			expectedContains: []string{
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 			},
 		},
 	}
@@ -323,6 +368,7 @@ func TestGenerateAPMRestoreStep(t *testing.T) {
 				"Restore APM dependencies",
 				"microsoft/apm-action",
 				"bundle: /tmp/gh-aw/apm-bundle/*.tar.gz",
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 			},
 			expectedNotContains: []string{"isolated"},
 		},
@@ -334,6 +380,14 @@ func TestGenerateAPMRestoreStep(t *testing.T) {
 				"microsoft/apm-action",
 				"bundle: /tmp/gh-aw/apm-bundle/*.tar.gz",
 				"isolated: 'true'",
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
+			},
+		},
+		{
+			name:    "Custom APM version still uses env var reference in step",
+			apmDeps: &APMDependenciesInfo{Packages: []string{"microsoft/apm-sample-package"}, Version: "v1.0.0"},
+			expectedContains: []string{
+				"apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 			},
 		},
 	}

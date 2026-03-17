@@ -125,6 +125,7 @@ func GenerateAPMPackStep(apmDeps *APMDependenciesInfo, target string, data *Work
 		"          archive: 'true'",
 		"          target: "+target,
 		"          working-directory: /tmp/gh-aw/apm-workspace",
+		"          apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 	)
 
 	return GitHubActionStep(lines)
@@ -153,6 +154,7 @@ func GenerateAPMRestoreStep(apmDeps *APMDependenciesInfo, data *WorkflowData) Gi
 		"        uses: " + actionRef,
 		"        with:",
 		"          bundle: /tmp/gh-aw/apm-bundle/*.tar.gz",
+		"          apm-version: ${{ env.GH_AW_INFO_APM_VERSION }}",
 	}
 
 	if apmDeps.Isolated {
