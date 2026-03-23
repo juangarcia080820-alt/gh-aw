@@ -22,10 +22,19 @@
 #
 # Daily status report for gh-aw project
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"8c8abae2e173ed0fcbd79e5003187cf9b17e04ae7fd24f874ccbd71611af6387","agent_id":"copilot"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"c8101abd859c9c5f5184918f1f1c3e4318f6ea629be65c3426b1136b97c65904","agent_id":"copilot"}
 
 name: "Dev"
 "on":
+  discussion:
+    types:
+    - labeled
+  issues:
+    types:
+    - labeled
+  pull_request:
+    types:
+    - labeled
   schedule:
   - cron: "0 9 * * *"
   workflow_dispatch:
@@ -35,22 +44,37 @@ name: "Dev"
         description: (Internal) JSON context injected by the calling agentic workflow. Not intended for direct user input.
         required: false
         type: string
+      item_number:
+        default: ""
+        description: The number of the issue, pull request, or discussion
+        required: false
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: "gh-aw-${{ github.workflow }}"
+  group: "gh-aw-${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}"
 
 run-name: "Dev"
 
 jobs:
   activation:
+    needs: pre_activation
+    if: >
+      needs.pre_activation.outputs.activated == 'true' && ((github.event_name == 'issues' || github.event_name == 'pull_request' ||
+      github.event_name == 'discussion') && github.event.label.name == 'dev' || (!(github.event_name == 'issues')) &&
+      (!(github.event_name == 'pull_request')) && (!(github.event_name == 'discussion')))
     runs-on: ubuntu-slim
     permissions:
       contents: read
+      discussions: write
+      issues: write
+      pull-requests: write
     outputs:
-      comment_id: ""
-      comment_repo: ""
+      comment_id: ${{ steps.add-comment.outputs.comment-id }}
+      comment_repo: ${{ steps.add-comment.outputs.comment-repo }}
+      comment_url: ${{ steps.add-comment.outputs.comment-url }}
+      label_command: ${{ steps.remove_trigger_label.outputs.label_name }}
       lockdown_check_failed: ${{ steps.generate_aw_info.outputs.lockdown_check_failed == 'true' }}
       model: ${{ steps.generate_aw_info.outputs.model }}
     steps:
@@ -90,6 +114,19 @@ jobs:
             setupGlobals(core, github, context, exec, io);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/generate_aw_info.cjs');
             await main(core, context);
+      - name: Add eyes reaction for immediate feedback
+        id: react
+        if: github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'discussion' || github.event_name == 'discussion_comment' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == github.repository_id
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_REACTION: "eyes"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/add_reaction.cjs');
+            await main();
       - name: Checkout .github and .agents folders
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -108,6 +145,29 @@ jobs:
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
             setupGlobals(core, github, context, exec, io);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/check_workflow_timestamp_api.cjs');
+            await main();
+      - name: Add comment with workflow run link
+        id: add-comment
+        if: github.event_name == 'issues' || github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'discussion' || github.event_name == 'discussion_comment' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == github.repository_id
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_WORKFLOW_NAME: "Dev"
+        with:
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/add_workflow_run_comment.cjs');
+            await main();
+      - name: Remove trigger label
+        id: remove_trigger_label
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_LABEL_NAMES: '["dev"]'
+        with:
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/remove_trigger_label.cjs');
             await main();
       - name: Create prompt with built-in context
         env:
@@ -130,6 +190,7 @@ jobs:
           cat "${RUNNER_TEMP}/gh-aw/prompts/xpia.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
+          cat "${RUNNER_TEMP}/gh-aw/prompts/qmd_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
           cat << 'GH_AW_PROMPT_EOF'
           <safe-output-tools>
@@ -194,6 +255,7 @@ jobs:
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
+          GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: ${{ needs.pre_activation.outputs.activated }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -212,7 +274,8 @@ jobs:
                 GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER: process.env.GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER,
                 GH_AW_GITHUB_REPOSITORY: process.env.GH_AW_GITHUB_REPOSITORY,
                 GH_AW_GITHUB_RUN_ID: process.env.GH_AW_GITHUB_RUN_ID,
-                GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE
+                GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE,
+                GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: process.env.GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED
               }
             });
       - name: Validate prompt placeholders
@@ -234,15 +297,15 @@ jobs:
           retention-days: 1
 
   agent:
-    needs: activation
+    needs:
+      - activation
+      - indexing
     runs-on: ubuntu-latest
     permissions:
       contents: read
       copilot-requests: write
       issues: read
       pull-requests: read
-    concurrency:
-      group: "gh-aw-copilot-${{ github.workflow }}"
     env:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       GH_AW_ASSETS_ALLOWED_EXTS: ""
@@ -319,6 +382,16 @@ jobs:
           GH_HOST: github.com
       - name: Install AWF binary
         run: bash ${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh v0.25.0
+      - name: Restore qmd index from cache
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: gh-aw-qmd-2.0.1-${{ github.run_id }}
+          path: /tmp/gh-aw/qmd-index/
+      - name: Restore qmd models cache
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cache/qmd/models/
+          key: qmd-models-2.0.1-${{ runner.os }}
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -483,6 +556,40 @@ jobs:
           
           bash ${RUNNER_TEMP}/gh-aw/actions/start_safe_outputs_server.sh
           
+      - name: Setup Node.js for qmd MCP server
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+      - name: Start QMD MCP Server
+        id: qmd-mcp-start
+        env:
+          INDEX_PATH: /tmp/gh-aw/qmd-index/index.sqlite
+          NO_COLOR: '1'
+        run: |
+          # Start qmd MCP server natively in HTTP mode.
+          # qmd must run on the host VM (not in Docker) because node-llama-cpp
+          # requires platform-native binaries that cannot run in a generic container.
+          # HTTP transport keeps MCP traffic on TCP, fully separate from stdout.
+          npx --yes --package @tobilu/qmd@2.0.1 qmd mcp --http --port 8181 \
+            >> /tmp/qmd-mcp.log 2>&1 &
+          # Save PID for logs; the GitHub Actions runner terminates all processes at job end.
+          echo $! > /tmp/qmd-mcp.pid
+          
+          # Wait up to 120 s for the server to accept requests
+          echo 'Waiting for QMD MCP server on port 8181...'
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8181/health > /dev/null 2>&1; then
+              echo 'QMD MCP server is ready'
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo 'ERROR: QMD MCP server failed to start within 120 s' >&2
+              cat /tmp/qmd-mcp.log 2>&1 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          
       - name: Start MCP Gateway
         id: start-mcp-gateway
         env:
@@ -527,6 +634,17 @@ jobs:
                   "allow-only": {
                     "min-integrity": "$GITHUB_MCP_GUARD_MIN_INTEGRITY",
                     "repos": "$GITHUB_MCP_GUARD_REPOS"
+                  }
+                }
+              },
+              "qmd": {
+                "type": "http",
+                "url": "http://host.docker.internal:8181/mcp",
+                "guard-policies": {
+                  "write-sink": {
+                    "accept": [
+                      "*"
+                    ]
                   }
                 }
               },
@@ -963,6 +1081,130 @@ jobs:
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
             setupGlobals(core, github, context, exec, io);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/handle_noop_message.cjs');
+            await main();
+      - name: Update reaction comment with completion status
+        id: conclusion
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
+          GH_AW_COMMENT_ID: ${{ needs.activation.outputs.comment_id }}
+          GH_AW_COMMENT_REPO: ${{ needs.activation.outputs.comment_repo }}
+          GH_AW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_AW_WORKFLOW_NAME: "Dev"
+          GH_AW_AGENT_CONCLUSION: ${{ needs.agent.result }}
+          GH_AW_DETECTION_CONCLUSION: ${{ needs.agent.outputs.detection_conclusion }}
+        with:
+          github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/notify_comment_error.cjs');
+            await main();
+
+  indexing:
+    needs: activation
+    runs-on: aw-gpu-runner-T4
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          persist-credentials: false
+      - name: Setup Scripts
+        uses: ./actions/setup
+        with:
+          destination: ${{ runner.temp }}/gh-aw/actions
+      - name: Checkout repository for qmd indexing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Restore qmd index from cache
+        id: qmd-cache-restore
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: gh-aw-qmd-2.0.1-${{ github.run_id }}
+          path: /tmp/gh-aw/qmd-index/
+          restore-keys: |
+            gh-aw-qmd-2.0.1-
+      - name: Cache qmd models
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cache/qmd/models/
+          key: qmd-models-2.0.1-${{ runner.os }}
+      - name: Cache node-llama-cpp binaries
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cache/node-llama-cpp/
+          key: node-llama-cpp-2.0.1-${{ runner.os }}-${{ runner.arch }}-${{ runner.imageid }}
+      - name: Setup Node.js for qmd
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+      - name: Install @tobilu/qmd SDK
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        run: |
+          npm install --prefix "${{ runner.temp }}/gh-aw/actions" @tobilu/qmd@2.0.1 @actions/github
+      - name: Build qmd index
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          QMD_CONFIG_JSON: |
+            {"dbPath":"/tmp/gh-aw/qmd-index","checkouts":[{"name":"docs","path":"${GITHUB_WORKSPACE}","patterns":["docs/src/**/*.md","docs/src/**/*.mdx"],"context":"gh-aw project documentation"}],"searches":[{"name":"issues","type":"issues","max":500,"tokenEnvVar":"QMD_SEARCH_TOKEN_0"}]}
+          QMD_SEARCH_TOKEN_0: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/qmd_index.cjs');
+            await main();
+      - name: Save qmd index to cache
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: gh-aw-qmd-2.0.1-${{ github.run_id }}
+          path: /tmp/gh-aw/qmd-index/
+
+  pre_activation:
+    if: >
+      (github.event_name == 'issues' || github.event_name == 'pull_request' || github.event_name == 'discussion') &&
+      github.event.label.name == 'dev' || (!(github.event_name == 'issues')) && (!(github.event_name == 'pull_request')) &&
+      (!(github.event_name == 'discussion'))
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      activated: ${{ steps.check_membership.outputs.is_team_member == 'true' }}
+      matched_command: ''
+    steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          persist-credentials: false
+      - name: Setup Scripts
+        uses: ./actions/setup
+        with:
+          destination: ${{ runner.temp }}/gh-aw/actions
+      - name: Check team membership for workflow
+        id: check_membership
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_REQUIRED_ROLES: admin,maintainer,write
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/check_membership.cjs');
             await main();
 
   safe_outputs:

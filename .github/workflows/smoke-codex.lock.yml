@@ -27,7 +27,7 @@
 #     - shared/gh.md
 #     - shared/reporting.md
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"8ccab7e12d1831d3a6e67bf289dbda8640b9254de4657fc2b2d8cfc3f33fcfb9","agent_id":"codex"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"ee94928302e2744993f1609697de1da08b593abd93e7f3a190d4c0148d049ff3","agent_id":"codex"}
 
 name: "Smoke Codex"
 "on":
@@ -196,6 +196,7 @@ jobs:
           cat "${RUNNER_TEMP}/gh-aw/prompts/temp_folder_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/markdown.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/playwright_prompt.md"
+          cat "${RUNNER_TEMP}/gh-aw/prompts/qmd_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/cache_memory_prompt.md"
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
           cat << 'GH_AW_PROMPT_EOF'
@@ -325,7 +326,9 @@ jobs:
           retention-days: 1
 
   agent:
-    needs: activation
+    needs:
+      - activation
+      - indexing
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -427,6 +430,16 @@ jobs:
         run: npm install -g @openai/codex@latest
       - name: Install AWF binary
         run: bash ${RUNNER_TEMP}/gh-aw/actions/install_awf_binary.sh v0.25.0
+      - name: Restore qmd index from cache
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: gh-aw-qmd-2.0.1-${{ github.run_id }}
+          path: /tmp/gh-aw/qmd-index/
+      - name: Restore qmd models cache
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cache/qmd/models/
+          key: qmd-models-2.0.1-${{ runner.os }}
       - name: Determine automatic lockdown mode for GitHub MCP Server
         id: determine-automatic-lockdown
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -820,6 +833,41 @@ jobs:
           
           bash ${RUNNER_TEMP}/gh-aw/actions/start_mcp_scripts_server.sh
           
+      - name: Setup Node.js for qmd MCP server
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+      - name: Start QMD MCP Server
+        id: qmd-mcp-start
+        env:
+          INDEX_PATH: /tmp/gh-aw/qmd-index/index.sqlite
+          NO_COLOR: '1'
+          NODE_LLAMA_CPP_GPU: 'false'
+        run: |
+          # Start qmd MCP server natively in HTTP mode.
+          # qmd must run on the host VM (not in Docker) because node-llama-cpp
+          # requires platform-native binaries that cannot run in a generic container.
+          # HTTP transport keeps MCP traffic on TCP, fully separate from stdout.
+          npx --yes --package @tobilu/qmd@2.0.1 qmd mcp --http --port 8181 \
+            >> /tmp/qmd-mcp.log 2>&1 &
+          # Save PID for logs; the GitHub Actions runner terminates all processes at job end.
+          echo $! > /tmp/qmd-mcp.pid
+          
+          # Wait up to 120 s for the server to accept requests
+          echo 'Waiting for QMD MCP server on port 8181...'
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8181/health > /dev/null 2>&1; then
+              echo 'QMD MCP server is ready'
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo 'ERROR: QMD MCP server failed to start within 120 s' >&2
+              cat /tmp/qmd-mcp.log 2>&1 || true
+              exit 1
+            fi
+            sleep 2
+          done
+          
       - name: Start MCP Gateway
         id: start-mcp-gateway
         env:
@@ -897,6 +945,15 @@ jobs:
           [mcp_servers.playwright."guard-policies"]
           
           [mcp_servers.playwright."guard-policies".write-sink]
+          accept = ["*"]
+          
+          [mcp_servers.qmd]
+          type = "http"
+          url = "http://host.docker.internal:8181/mcp"
+          
+          [mcp_servers.qmd."guard-policies"]
+          
+          [mcp_servers.qmd."guard-policies".write-sink]
           accept = ["*"]
           
           [mcp_servers.safeoutputs]
@@ -990,6 +1047,17 @@ jobs:
                   "--no-sandbox"
                 ],
                 "mounts": ["/tmp/gh-aw/mcp-logs:/tmp/gh-aw/mcp-logs:rw"],
+                "guard-policies": {
+                  "write-sink": {
+                    "accept": [
+                      "*"
+                    ]
+                  }
+                }
+              },
+              "qmd": {
+                "type": "http",
+                "url": "http://host.docker.internal:8181/mcp",
                 "guard-policies": {
                   "write-sink": {
                     "accept": [
@@ -1463,6 +1531,77 @@ jobs:
             setupGlobals(core, github, context, exec, io);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/notify_comment_error.cjs');
             await main();
+
+  indexing:
+    needs: activation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Checkout actions folder
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: github/gh-aw
+          sparse-checkout: |
+            actions
+          persist-credentials: false
+      - name: Setup Scripts
+        uses: ./actions/setup
+        with:
+          destination: ${{ runner.temp }}/gh-aw/actions
+      - name: Checkout repository for qmd indexing
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Restore qmd index from cache
+        id: qmd-cache-restore
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: gh-aw-qmd-2.0.1-${{ github.run_id }}
+          path: /tmp/gh-aw/qmd-index/
+          restore-keys: |
+            gh-aw-qmd-2.0.1-
+      - name: Cache qmd models
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cache/qmd/models/
+          key: qmd-models-2.0.1-${{ runner.os }}
+      - name: Cache node-llama-cpp binaries
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.cache/node-llama-cpp/
+          key: node-llama-cpp-2.0.1-${{ runner.os }}-${{ runner.arch }}-${{ runner.imageid }}
+      - name: Setup Node.js for qmd
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+      - name: Install @tobilu/qmd SDK
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        run: |
+          npm install --prefix "${{ runner.temp }}/gh-aw/actions" @tobilu/qmd@2.0.1 @actions/github
+      - name: Build qmd index
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          QMD_CONFIG_JSON: |
+            {"dbPath":"/tmp/gh-aw/qmd-index","checkouts":[{"name":"docs","path":"${GITHUB_WORKSPACE}","patterns":["docs/src/**/*.md","docs/src/**/*.mdx"],"context":"gh-aw project documentation"}],"searches":[{"name":"issues","type":"issues","max":500,"tokenEnvVar":"QMD_SEARCH_TOKEN_0"}]}
+          NODE_LLAMA_CPP_GPU: "false"
+          QMD_SEARCH_TOKEN_0: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/qmd_index.cjs');
+            await main();
+      - name: Save qmd index to cache
+        if: steps.qmd-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          key: gh-aw-qmd-2.0.1-${{ github.run_id }}
+          path: /tmp/gh-aw/qmd-index/
 
   pre_activation:
     if: >
