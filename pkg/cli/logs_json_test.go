@@ -23,6 +23,7 @@ func TestBuildLogsData(t *testing.T) {
 				DatabaseID:       12345,
 				Number:           1,
 				WorkflowName:     "Test Workflow",
+				WorkflowPath:     ".github/workflows/test-workflow.yml",
 				Status:           "completed",
 				Conclusion:       "success",
 				Duration:         5 * time.Minute,
@@ -38,6 +39,24 @@ func TestBuildLogsData(t *testing.T) {
 				Event:            "push",
 				HeadBranch:       "main",
 			},
+			TaskDomain: &TaskDomainInfo{
+				Name:  "triage",
+				Label: "Triage",
+			},
+			BehaviorFingerprint: &BehaviorFingerprint{
+				ExecutionStyle:  "directed",
+				ToolBreadth:     "narrow",
+				ActuationStyle:  "read_only",
+				ResourceProfile: "lean",
+				DispatchMode:    "standalone",
+			},
+			AgenticAssessments: []AgenticAssessment{
+				{
+					Kind:     "overkill_for_agentic",
+					Severity: "low",
+					Summary:  "Deterministic automation may be a better fit.",
+				},
+			},
 			MissingTools: []MissingToolReport{},
 			MCPFailures:  []MCPFailureReport{},
 		},
@@ -46,6 +65,7 @@ func TestBuildLogsData(t *testing.T) {
 				DatabaseID:       12346,
 				Number:           2,
 				WorkflowName:     "Test Workflow",
+				WorkflowPath:     ".github/workflows/test-workflow.yml",
 				Status:           "completed",
 				Conclusion:       "failure",
 				Duration:         3 * time.Minute,
@@ -60,6 +80,17 @@ func TestBuildLogsData(t *testing.T) {
 				LogsPath:         filepath.Join(tmpDir, "run-12346"),
 				Event:            "pull_request",
 				HeadBranch:       "feature",
+			},
+			TaskDomain: &TaskDomainInfo{
+				Name:  "triage",
+				Label: "Triage",
+			},
+			BehaviorFingerprint: &BehaviorFingerprint{
+				ExecutionStyle:  "directed",
+				ToolBreadth:     "narrow",
+				ActuationStyle:  "read_only",
+				ResourceProfile: "lean",
+				DispatchMode:    "standalone",
 			},
 			MissingTools: []MissingToolReport{
 				{
@@ -99,15 +130,51 @@ func TestBuildLogsData(t *testing.T) {
 	if logsData.Summary.TotalMissingTools != 1 {
 		t.Errorf("Expected TotalMissingTools to be 1, got %d", logsData.Summary.TotalMissingTools)
 	}
+	if logsData.Summary.TotalEpisodes != 2 {
+		t.Errorf("Expected TotalEpisodes to be 2, got %d", logsData.Summary.TotalEpisodes)
+	}
+	if logsData.Summary.HighConfidenceEpisodes != 2 {
+		t.Errorf("Expected HighConfidenceEpisodes to be 2, got %d", logsData.Summary.HighConfidenceEpisodes)
+	}
 
 	// Verify runs data
 	if len(logsData.Runs) != 2 {
 		t.Errorf("Expected 2 runs, got %d", len(logsData.Runs))
 	}
+	if len(logsData.Episodes) != 2 {
+		t.Fatalf("Expected 2 episodes, got %d", len(logsData.Episodes))
+	}
+	if len(logsData.Edges) != 0 {
+		t.Fatalf("Expected 0 edges for standalone runs, got %d", len(logsData.Edges))
+	}
 
 	// Verify first run
 	if logsData.Runs[0].DatabaseID != 12345 {
 		t.Errorf("Expected DatabaseID 12345, got %d", logsData.Runs[0].DatabaseID)
+	}
+	if logsData.Runs[0].TaskDomain == nil || logsData.Runs[0].TaskDomain.Name != "triage" {
+		t.Fatalf("Expected first run to include task domain, got %+v", logsData.Runs[0].TaskDomain)
+	}
+	if logsData.Runs[0].BehaviorFingerprint == nil || logsData.Runs[0].BehaviorFingerprint.ResourceProfile != "lean" {
+		t.Fatalf("Expected first run to include behavior fingerprint, got %+v", logsData.Runs[0].BehaviorFingerprint)
+	}
+	if len(logsData.Runs[0].AgenticAssessments) != 1 {
+		t.Fatalf("Expected first run to include 1 agentic assessment, got %d", len(logsData.Runs[0].AgenticAssessments))
+	}
+	if logsData.Runs[0].Comparison == nil {
+		t.Fatal("Expected first run to include comparison payload")
+	}
+	if logsData.Runs[0].Comparison.BaselineFound {
+		t.Fatal("Expected oldest run to have no baseline in logs comparison")
+	}
+	if logsData.Runs[1].Comparison == nil || !logsData.Runs[1].Comparison.BaselineFound {
+		t.Fatalf("Expected newer run to include a baseline comparison, got %+v", logsData.Runs[1].Comparison)
+	}
+	if logsData.Runs[1].Comparison.Baseline == nil || logsData.Runs[1].Comparison.Baseline.Selection != "cohort_match" {
+		t.Fatalf("Expected newer run to use cohort_match baseline, got %+v", logsData.Runs[1].Comparison.Baseline)
+	}
+	if logsData.Runs[1].Comparison.Baseline == nil || logsData.Runs[1].Comparison.Baseline.RunID != 12345 {
+		t.Fatalf("Expected newer run baseline to point to run 12345, got %+v", logsData.Runs[1].Comparison.Baseline)
 	}
 	// Duration format from formatDuration is "5.0m", not "5m0s"
 	if logsData.Runs[0].Duration == "" {
@@ -130,14 +197,16 @@ func TestRenderLogsJSON(t *testing.T) {
 	// Create sample logs data
 	logsData := LogsData{
 		Summary: LogsSummary{
-			TotalRuns:         2,
-			TotalDuration:     "8m0s",
-			TotalTokens:       1500,
-			TotalCost:         0.075,
-			TotalTurns:        5,
-			TotalErrors:       1,
-			TotalWarnings:     1,
-			TotalMissingTools: 1,
+			TotalRuns:              2,
+			TotalDuration:          "8m0s",
+			TotalTokens:            1500,
+			TotalCost:              0.075,
+			TotalTurns:             5,
+			TotalErrors:            1,
+			TotalWarnings:          1,
+			TotalMissingTools:      1,
+			TotalEpisodes:          1,
+			HighConfidenceEpisodes: 1,
 		},
 		Runs: []RunData{
 			{
@@ -157,8 +226,29 @@ func TestRenderLogsJSON(t *testing.T) {
 				LogsPath:      filepath.Join(tmpDir, "run-12345"),
 				Event:         "push",
 				Branch:        "main",
+				Comparison: &AuditComparisonData{
+					BaselineFound: true,
+					Baseline: &AuditComparisonBaseline{
+						RunID:     12000,
+						Selection: "cohort_match",
+						MatchedOn: []string{"task_domain", "resource_profile"},
+					},
+				},
 			},
 		},
+		Episodes: []EpisodeData{
+			{
+				EpisodeID:          "standalone:12345",
+				Kind:               "standalone",
+				Confidence:         "high",
+				RunIDs:             []int64{12345},
+				WorkflowNames:      []string{"Test Workflow"},
+				TotalRuns:          1,
+				TotalTokens:        1000,
+				TotalEstimatedCost: 0.05,
+			},
+		},
+		Edges:        []EpisodeEdge{},
 		LogsLocation: tmpDir,
 	}
 
@@ -194,8 +284,97 @@ func TestRenderLogsJSON(t *testing.T) {
 	if parsedData.Summary.TotalTokens != 1500 {
 		t.Errorf("Expected TotalTokens 1500, got %d", parsedData.Summary.TotalTokens)
 	}
+	if parsedData.Summary.TotalEpisodes != 1 {
+		t.Errorf("Expected TotalEpisodes 1, got %d", parsedData.Summary.TotalEpisodes)
+	}
 	if len(parsedData.Runs) != 1 {
 		t.Errorf("Expected 1 run in JSON, got %d", len(parsedData.Runs))
+	}
+	if parsedData.Runs[0].Comparison == nil || parsedData.Runs[0].Comparison.Baseline == nil || parsedData.Runs[0].Comparison.Baseline.Selection != "cohort_match" {
+		t.Fatalf("Expected comparison metadata to survive JSON round-trip, got %+v", parsedData.Runs[0].Comparison)
+	}
+}
+
+func TestBuildLogsDataAggregatesDispatchEpisode(t *testing.T) {
+	tmpDir := testutil.TempDir(t, "test-episode-*")
+	processedRuns := []ProcessedRun{
+		{
+			Run: WorkflowRun{
+				DatabaseID:    2001,
+				WorkflowName:  "orchestrator",
+				WorkflowPath:  ".github/workflows/orchestrator.yml",
+				Status:        "completed",
+				Conclusion:    "success",
+				Duration:      2 * time.Minute,
+				TokenUsage:    300,
+				EstimatedCost: 0.01,
+				CreatedAt:     time.Date(2024, 2, 1, 12, 0, 0, 0, time.UTC),
+				StartedAt:     time.Date(2024, 2, 1, 12, 0, 0, 0, time.UTC),
+				UpdatedAt:     time.Date(2024, 2, 1, 12, 2, 0, 0, time.UTC),
+				LogsPath:      filepath.Join(tmpDir, "run-2001"),
+			},
+		},
+		{
+			Run: WorkflowRun{
+				DatabaseID:       2002,
+				WorkflowName:     "worker",
+				WorkflowPath:     ".github/workflows/worker.yml",
+				Status:           "completed",
+				Conclusion:       "success",
+				Duration:         4 * time.Minute,
+				TokenUsage:       700,
+				EstimatedCost:    0.03,
+				MissingToolCount: 1,
+				CreatedAt:        time.Date(2024, 2, 1, 12, 3, 0, 0, time.UTC),
+				StartedAt:        time.Date(2024, 2, 1, 12, 3, 0, 0, time.UTC),
+				UpdatedAt:        time.Date(2024, 2, 1, 12, 7, 0, 0, time.UTC),
+				LogsPath:         filepath.Join(tmpDir, "run-2002"),
+			},
+			AwContext: &AwContext{
+				Repo:           "github/gh-aw",
+				RunID:          "2001",
+				WorkflowID:     "github/gh-aw/.github/workflows/orchestrator.yml@refs/heads/main",
+				WorkflowCallID: "2001-1",
+				EventType:      "workflow_dispatch",
+			},
+			BehaviorFingerprint: &BehaviorFingerprint{ActuationStyle: "selective_write"},
+			MCPFailures:         []MCPFailureReport{{ServerName: "github", Status: "failed"}},
+		},
+	}
+
+	logsData := buildLogsData(processedRuns, tmpDir, nil)
+
+	if logsData.Summary.TotalEpisodes != 1 {
+		t.Fatalf("Expected 1 episode, got %d", logsData.Summary.TotalEpisodes)
+	}
+	if logsData.Summary.HighConfidenceEpisodes != 1 {
+		t.Fatalf("Expected 1 high-confidence episode, got %d", logsData.Summary.HighConfidenceEpisodes)
+	}
+	if len(logsData.Edges) != 1 {
+		t.Fatalf("Expected 1 edge, got %d", len(logsData.Edges))
+	}
+	edge := logsData.Edges[0]
+	if edge.SourceRunID != 2001 || edge.TargetRunID != 2002 {
+		t.Fatalf("Expected edge 2001->2002, got %d->%d", edge.SourceRunID, edge.TargetRunID)
+	}
+	if edge.EdgeType != "dispatch_workflow" {
+		t.Fatalf("Expected dispatch_workflow edge, got %s", edge.EdgeType)
+	}
+	episode := logsData.Episodes[0]
+	if episode.Kind != "dispatch_workflow" {
+		t.Fatalf("Expected dispatch_workflow episode, got %s", episode.Kind)
+	}
+	if episode.TotalRuns != 2 {
+		t.Fatalf("Expected episode TotalRuns 2, got %d", episode.TotalRuns)
+	}
+	if episode.TotalTokens != 1000 {
+		t.Fatalf("Expected episode TotalTokens 1000, got %d", episode.TotalTokens)
+	}
+	if episode.MCPFailureCount != 1 {
+		t.Fatalf("Expected episode MCPFailureCount 1, got %d", episode.MCPFailureCount)
+	}
+	if episode.WriteCapableNodeCount != 1 {
+		t.Fatalf("Expected episode WriteCapableNodeCount 1, got %d", episode.WriteCapableNodeCount)
 	}
 }
 

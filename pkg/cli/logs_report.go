@@ -22,8 +22,11 @@ var reportLog = logger.New("cli:logs_report")
 type LogsData struct {
 	Summary           LogsSummary                `json:"summary" console:"title:Workflow Logs Summary"`
 	Runs              []RunData                  `json:"runs" console:"title:Workflow Logs Overview"`
+	Episodes          []EpisodeData              `json:"episodes" console:"-"`
+	Edges             []EpisodeEdge              `json:"edges" console:"-"`
 	ToolUsage         []ToolUsageSummary         `json:"tool_usage,omitempty" console:"title:🛠️  Tool Usage Summary,omitempty"`
 	MCPToolUsage      *MCPToolUsageSummary       `json:"mcp_tool_usage,omitempty" console:"title:🔧 MCP Tool Usage,omitempty"`
+	Observability     []ObservabilityInsight     `json:"observability_insights,omitempty" console:"-"`
 	ErrorsAndWarnings []ErrorSummary             `json:"errors_and_warnings,omitempty" console:"title:Errors and Warnings,omitempty"`
 	MissingTools      []MissingToolSummary       `json:"missing_tools,omitempty" console:"title:🛠️  Missing Tools Summary,omitempty"`
 	MissingData       []MissingDataSummary       `json:"missing_data,omitempty" console:"title:📊 Missing Data Summary,omitempty"`
@@ -51,44 +54,50 @@ type ContinuationData struct {
 
 // LogsSummary contains aggregate metrics across all runs
 type LogsSummary struct {
-	TotalRuns         int     `json:"total_runs" console:"header:Total Runs"`
-	TotalDuration     string  `json:"total_duration" console:"header:Total Duration"`
-	TotalTokens       int     `json:"total_tokens" console:"header:Total Tokens,format:number"`
-	TotalCost         float64 `json:"total_cost" console:"header:Total Cost,format:cost"`
-	TotalTurns        int     `json:"total_turns" console:"header:Total Turns"`
-	TotalErrors       int     `json:"total_errors" console:"header:Total Errors"`
-	TotalWarnings     int     `json:"total_warnings" console:"header:Total Warnings"`
-	TotalMissingTools int     `json:"total_missing_tools" console:"header:Total Missing Tools"`
-	TotalMissingData  int     `json:"total_missing_data" console:"header:Total Missing Data"`
-	TotalSafeItems    int     `json:"total_safe_items" console:"header:Total Safe Items"`
+	TotalRuns              int     `json:"total_runs" console:"header:Total Runs"`
+	TotalDuration          string  `json:"total_duration" console:"header:Total Duration"`
+	TotalTokens            int     `json:"total_tokens" console:"header:Total Tokens,format:number"`
+	TotalCost              float64 `json:"total_cost" console:"header:Total Cost,format:cost"`
+	TotalTurns             int     `json:"total_turns" console:"header:Total Turns"`
+	TotalErrors            int     `json:"total_errors" console:"header:Total Errors"`
+	TotalWarnings          int     `json:"total_warnings" console:"header:Total Warnings"`
+	TotalMissingTools      int     `json:"total_missing_tools" console:"header:Total Missing Tools"`
+	TotalMissingData       int     `json:"total_missing_data" console:"header:Total Missing Data"`
+	TotalSafeItems         int     `json:"total_safe_items" console:"header:Total Safe Items"`
+	TotalEpisodes          int     `json:"total_episodes" console:"header:Total Episodes"`
+	HighConfidenceEpisodes int     `json:"high_confidence_episodes" console:"header:High Confidence Episodes"`
 }
 
 // RunData contains information about a single workflow run
 type RunData struct {
-	DatabaseID       int64      `json:"database_id" console:"header:Run ID"`
-	Number           int        `json:"number" console:"-"`
-	WorkflowName     string     `json:"workflow_name" console:"header:Workflow"`
-	WorkflowPath     string     `json:"workflow_path" console:"-"`
-	Agent            string     `json:"agent,omitempty" console:"header:Agent,omitempty"`
-	Status           string     `json:"status" console:"header:Status"`
-	Conclusion       string     `json:"conclusion,omitempty" console:"-"`
-	Duration         string     `json:"duration,omitempty" console:"header:Duration,omitempty"`
-	TokenUsage       int        `json:"token_usage,omitempty" console:"header:Tokens,format:number,omitempty"`
-	EstimatedCost    float64    `json:"estimated_cost,omitempty" console:"header:Cost ($),format:cost,omitempty"`
-	Turns            int        `json:"turns,omitempty" console:"header:Turns,omitempty"`
-	ErrorCount       int        `json:"error_count" console:"header:Errors"`
-	WarningCount     int        `json:"warning_count" console:"header:Warnings"`
-	MissingToolCount int        `json:"missing_tool_count" console:"header:Missing Tools"`
-	MissingDataCount int        `json:"missing_data_count" console:"header:Missing Data"`
-	SafeItemsCount   int        `json:"safe_items_count,omitempty" console:"header:Safe Items,omitempty"`
-	CreatedAt        time.Time  `json:"created_at" console:"header:Created"`
-	StartedAt        time.Time  `json:"started_at,omitzero" console:"-"`
-	UpdatedAt        time.Time  `json:"updated_at,omitzero" console:"-"`
-	URL              string     `json:"url" console:"-"`
-	LogsPath         string     `json:"logs_path" console:"header:Logs Path"`
-	Event            string     `json:"event" console:"-"`
-	Branch           string     `json:"branch" console:"-"`
-	AwContext        *AwContext `json:"context,omitempty" console:"-"` // aw_context data from aw_info.json
+	DatabaseID          int64                `json:"database_id" console:"header:Run ID"`
+	Number              int                  `json:"number" console:"-"`
+	WorkflowName        string               `json:"workflow_name" console:"header:Workflow"`
+	WorkflowPath        string               `json:"workflow_path" console:"-"`
+	Agent               string               `json:"agent,omitempty" console:"header:Agent,omitempty"`
+	Status              string               `json:"status" console:"header:Status"`
+	Conclusion          string               `json:"conclusion,omitempty" console:"-"`
+	Duration            string               `json:"duration,omitempty" console:"header:Duration,omitempty"`
+	TokenUsage          int                  `json:"token_usage,omitempty" console:"header:Tokens,format:number,omitempty"`
+	EstimatedCost       float64              `json:"estimated_cost,omitempty" console:"header:Cost ($),format:cost,omitempty"`
+	Turns               int                  `json:"turns,omitempty" console:"header:Turns,omitempty"`
+	ErrorCount          int                  `json:"error_count" console:"header:Errors"`
+	WarningCount        int                  `json:"warning_count" console:"header:Warnings"`
+	MissingToolCount    int                  `json:"missing_tool_count" console:"header:Missing Tools"`
+	MissingDataCount    int                  `json:"missing_data_count" console:"header:Missing Data"`
+	SafeItemsCount      int                  `json:"safe_items_count,omitempty" console:"header:Safe Items,omitempty"`
+	CreatedAt           time.Time            `json:"created_at" console:"header:Created"`
+	StartedAt           time.Time            `json:"started_at,omitzero" console:"-"`
+	UpdatedAt           time.Time            `json:"updated_at,omitzero" console:"-"`
+	URL                 string               `json:"url" console:"-"`
+	LogsPath            string               `json:"logs_path" console:"header:Logs Path"`
+	Event               string               `json:"event" console:"-"`
+	Branch              string               `json:"branch" console:"-"`
+	Comparison          *AuditComparisonData `json:"comparison,omitempty" console:"-"`
+	TaskDomain          *TaskDomainInfo      `json:"task_domain,omitempty" console:"-"`
+	BehaviorFingerprint *BehaviorFingerprint `json:"behavior_fingerprint,omitempty" console:"-"`
+	AgenticAssessments  []AgenticAssessment  `json:"agentic_assessments,omitempty" console:"-"`
+	AwContext           *AwContext           `json:"context,omitempty" console:"-"` // aw_context data from aw_info.json
 }
 
 // ToolUsageSummary contains aggregated tool usage statistics
@@ -166,7 +175,7 @@ func buildLogsData(processedRuns []ProcessedRun, outputDir string, continuation 
 		totalMissingData += run.MissingDataCount
 		totalSafeItems += run.SafeItemsCount
 
-		// Extract agent/engine ID and aw_context from aw_info.json
+		// Extract agent/engine ID and aw_context from aw_info.json.
 		agentID := ""
 		var awContext *AwContext
 		awInfoPath := filepath.Join(run.LogsPath, "aw_info.json")
@@ -174,31 +183,40 @@ func buildLogsData(processedRuns []ProcessedRun, outputDir string, continuation 
 			agentID = info.EngineID
 			awContext = info.Context
 		}
+		if awContext == nil {
+			awContext = pr.AwContext
+		}
+
+		comparison := buildAuditComparisonForProcessedRuns(pr, processedRuns)
 
 		runData := RunData{
-			DatabaseID:       run.DatabaseID,
-			Number:           run.Number,
-			WorkflowName:     run.WorkflowName,
-			WorkflowPath:     run.WorkflowPath,
-			Agent:            agentID,
-			Status:           run.Status,
-			Conclusion:       run.Conclusion,
-			TokenUsage:       run.TokenUsage,
-			EstimatedCost:    run.EstimatedCost,
-			Turns:            run.Turns,
-			ErrorCount:       run.ErrorCount,
-			WarningCount:     run.WarningCount,
-			MissingToolCount: run.MissingToolCount,
-			MissingDataCount: run.MissingDataCount,
-			SafeItemsCount:   run.SafeItemsCount,
-			CreatedAt:        run.CreatedAt,
-			StartedAt:        run.StartedAt,
-			UpdatedAt:        run.UpdatedAt,
-			URL:              run.URL,
-			LogsPath:         run.LogsPath,
-			Event:            run.Event,
-			Branch:           run.HeadBranch,
-			AwContext:        awContext,
+			DatabaseID:          run.DatabaseID,
+			Number:              run.Number,
+			WorkflowName:        run.WorkflowName,
+			WorkflowPath:        run.WorkflowPath,
+			Agent:               agentID,
+			Status:              run.Status,
+			Conclusion:          run.Conclusion,
+			TokenUsage:          run.TokenUsage,
+			EstimatedCost:       run.EstimatedCost,
+			Turns:               run.Turns,
+			ErrorCount:          run.ErrorCount,
+			WarningCount:        run.WarningCount,
+			MissingToolCount:    run.MissingToolCount,
+			MissingDataCount:    run.MissingDataCount,
+			SafeItemsCount:      run.SafeItemsCount,
+			CreatedAt:           run.CreatedAt,
+			StartedAt:           run.StartedAt,
+			UpdatedAt:           run.UpdatedAt,
+			URL:                 run.URL,
+			LogsPath:            run.LogsPath,
+			Event:               run.Event,
+			Branch:              run.HeadBranch,
+			Comparison:          comparison,
+			TaskDomain:          pr.TaskDomain,
+			BehaviorFingerprint: pr.BehaviorFingerprint,
+			AgenticAssessments:  pr.AgenticAssessments,
+			AwContext:           awContext,
 		}
 		if run.Duration > 0 {
 			runData.Duration = timeutil.FormatDuration(run.Duration)
@@ -217,6 +235,14 @@ func buildLogsData(processedRuns []ProcessedRun, outputDir string, continuation 
 		TotalMissingTools: totalMissingTools,
 		TotalMissingData:  totalMissingData,
 		TotalSafeItems:    totalSafeItems,
+	}
+
+	episodes, edges := buildEpisodeData(runs, processedRuns)
+	for _, episode := range episodes {
+		summary.TotalEpisodes++
+		if episode.Confidence == "high" {
+			summary.HighConfidenceEpisodes++
+		}
 	}
 
 	// Build tool usage summary
@@ -246,13 +272,18 @@ func buildLogsData(processedRuns []ProcessedRun, outputDir string, continuation 
 	// Build redacted domains summary
 	redactedDomains := buildRedactedDomainsSummary(processedRuns)
 
+	observability := buildLogsObservabilityInsights(processedRuns, toolUsage)
+
 	absOutputDir, _ := filepath.Abs(outputDir)
 
 	return LogsData{
 		Summary:           summary,
 		Runs:              runs,
+		Episodes:          episodes,
+		Edges:             edges,
 		ToolUsage:         toolUsage,
 		MCPToolUsage:      mcpToolUsage,
+		Observability:     observability,
 		ErrorsAndWarnings: errorsAndWarnings,
 		MissingTools:      missingTools,
 		MissingData:       missingData,
@@ -941,5 +972,12 @@ func renderLogsConsole(data LogsData) {
 		fmt.Fprintf(os.Stderr, "  %s %d unique tools used\n",
 			console.FormatInfoMessage("•"),
 			len(data.ToolUsage))
+	}
+
+	if len(data.Observability) > 0 {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, console.FormatSectionHeader("Observability Insights"))
+		fmt.Fprintln(os.Stderr)
+		renderObservabilityInsights(data.Observability)
 	}
 }
