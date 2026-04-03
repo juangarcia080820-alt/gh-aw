@@ -28,23 +28,6 @@ func (c *Compiler) generateMainJobSteps(yaml *strings.Builder, data *WorkflowDat
 		checkoutMgr.SetCrossRepoTargetRepo("${{ needs.activation.outputs.target_repo }}")
 	}
 
-	// Generate GitHub App token minting steps for checkouts with app auth
-	// These must be emitted BEFORE the checkout steps that reference them
-	if checkoutMgr.HasAppAuth() {
-		compilerYamlLog.Print("Generating checkout app token minting steps")
-		var permissions *Permissions
-		if data.Permissions != "" {
-			parser := NewPermissionsParser(data.Permissions)
-			permissions = parser.ToPermissions()
-		} else {
-			permissions = NewPermissions()
-		}
-		appTokenSteps := checkoutMgr.GenerateCheckoutAppTokenSteps(c, permissions)
-		for _, step := range appTokenSteps {
-			yaml.WriteString(step)
-		}
-	}
-
 	// Add checkout step first if needed
 	if needsCheckout {
 		// Emit the default workspace checkout, applying any user-supplied overrides
@@ -282,9 +265,6 @@ func (c *Compiler) generateMainJobSteps(yaml *strings.Builder, data *WorkflowDat
 
 	// Add step to parse blocked-users and approval-labels guard variables into JSON arrays
 	c.generateParseGuardVarsStep(yaml, data)
-
-	// Add GitHub MCP app token minting step if configured
-	c.generateGitHubMCPAppTokenMintingStep(yaml, data)
 
 	// Stop DIFC proxy before starting the MCP gateway. The proxy must be stopped first
 	// to avoid double-filtering: the gateway uses the same guard policy for the agent phase.
