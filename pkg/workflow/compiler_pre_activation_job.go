@@ -39,7 +39,8 @@ func (c *Compiler) buildPreActivationJob(data *WorkflowData, needsPermissionChec
 	needsContentsRead := (c.actionMode.IsDev() || c.actionMode.IsScript()) && len(c.generateCheckoutActionsFolder(data)) > 0
 
 	// Pre-activation job doesn't need project support (no safe outputs processed here)
-	steps = append(steps, c.generateSetupStep(setupActionRef, SetupActionDestination, false)...)
+	// Pre-activation runs before activation so no trace ID is available yet
+	steps = append(steps, c.generateSetupStep(setupActionRef, SetupActionDestination, false, "")...)
 
 	// Determine permissions for pre-activation job
 	var perms *Permissions
@@ -417,6 +418,11 @@ func (c *Compiler) buildPreActivationJob(data *WorkflowData, needsPermissionChec
 	var jobIfCondition string
 	if !c.referencesCustomJobOutputs(data.If, data.Jobs) && !referencesPreActivationOutputs(data.If) {
 		jobIfCondition = data.If
+	}
+
+	// In script mode, explicitly add a cleanup step (mirrors post.js in dev/release/action mode).
+	if c.actionMode.IsScript() {
+		steps = append(steps, c.generateScriptModeCleanupStep())
 	}
 
 	job := &Job{

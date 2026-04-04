@@ -16,6 +16,10 @@
 
 set -e
 
+# Capture start time immediately so the OTLP setup span reflects actual setup duration.
+# Falls back to 0 when node is unavailable.
+SETUP_START_MS=$(node -e "process.stdout.write(String(Date.now()))" 2>/dev/null || echo "0")
+
 # Helper: create directories, using sudo on macOS where system directories are root-owned
 create_dir() {
   if [[ "$(uname -s)" == "Darwin" ]] && [[ "$1" == /opt/* ]]; then
@@ -381,6 +385,16 @@ if [ "${SAFE_OUTPUT_CUSTOM_TOKENS_ENABLED}" = "true" ]; then
   cd - > /dev/null
 else
   echo "Custom tokens not enabled - skipping @actions/github installation"
+fi
+
+# Send OTLP job setup span when configured (non-fatal).
+# Delegates to action_setup_otlp.cjs (same file used by actions/setup/index.js)
+# to keep dev/release and script mode behavior in sync.
+# Skipped when GH_AW_SKIP_SETUP_OTLP=1 because index.js will send the span itself.
+if [ -z "${GH_AW_SKIP_SETUP_OTLP}" ] && command -v node &>/dev/null && [ -f "${DESTINATION}/action_setup_otlp.cjs" ]; then
+  echo "Sending OTLP setup span..."
+  SETUP_START_MS="${SETUP_START_MS}" INPUT_TRACE_ID="${INPUT_TRACE_ID:-}" node "${DESTINATION}/action_setup_otlp.cjs" || true
+  echo "OTLP setup span step complete"
 fi
 
 # Set output
