@@ -471,6 +471,13 @@ func (c *Compiler) generateMainJobSteps(yaml *strings.Builder, data *WorkflowDat
 	// Written by github_rate_limit_logger.cjs during REST API calls.
 	artifactPaths = append(artifactPaths, "/tmp/gh-aw/"+constants.GithubRateLimitsFilename)
 
+	// Collect OTLP span mirror — enables post-hoc trace debugging without a live collector.
+	// Written by send_otlp_span.cjs; each line is a full OTLP/HTTP JSON traces payload.
+	// Only included when OTLP is configured for this workflow.
+	if isOTLPEnabled(data) {
+		artifactPaths = append(artifactPaths, "/tmp/gh-aw/"+constants.OtelJsonlFilename)
+	}
+
 	// Collect safe outputs and agent output paths for the unified artifact.
 	// These were previously uploaded as separate safe-output and agent-output artifacts.
 	if data.SafeOutputs != nil {
