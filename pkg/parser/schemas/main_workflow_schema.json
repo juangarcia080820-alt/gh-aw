@@ -5523,12 +5523,6 @@
                   },
                   "description": "List of additional repositories in format 'owner/repo' that comments can be created in. When specified, the agent can use a 'repo' field in the output to specify which repository to create the comment in. The target repository (current or target-repo) is always implicitly allowed."
                 },
-                "discussion": {
-                  "type": "boolean",
-                  "const": true,
-                  "description": "DEPRECATED: This field is deprecated and will be removed in a future version. The add_comment handler now automatically detects whether to target discussions based on context (discussion/discussion_comment events) or the item_number field provided by the agent. Remove this field from your workflow configuration.",
-                  "deprecated": true
-                },
                 "hide-older-comments": {
                   "type": "boolean",
                   "description": "When true, minimizes/hides all previous comments from the same agentic workflow (identified by tracker-id) before creating the new comment. Default: false."
@@ -5543,15 +5537,15 @@
                 },
                 "discussions": {
                   "type": "boolean",
-                  "description": "Controls whether the workflow requests discussions:write permission for add-comment and includes discussions in the event trigger condition. Default: true (includes discussions:write). Set to false if your GitHub App lacks Discussions permission to prevent 422 errors during token generation."
+                  "description": "Controls whether the workflow requests discussions:write permission for add-comment. Default: true (includes discussions:write). Set to false if your GitHub App lacks Discussions permission to prevent 422 errors during token generation."
                 },
                 "issues": {
                   "type": "boolean",
-                  "description": "Controls whether the workflow requests issues:write permission for add-comment and includes issues in the event trigger condition. Default: true (includes issues:write). Set to false to disable issue commenting."
+                  "description": "Controls whether the workflow requests issues:write permission for add-comment. Default: true (includes issues:write). Set to false to disable issue commenting permissions."
                 },
                 "pull-requests": {
                   "type": "boolean",
-                  "description": "Controls whether the workflow requests pull-requests:write permission for add-comment and includes pull requests in the event trigger condition. Default: true (includes pull-requests:write). Set to false to disable pull request commenting."
+                  "description": "Controls whether the workflow requests pull-requests:write permission for add-comment. Default: true (includes pull-requests:write). Set to false to disable pull request commenting permissions."
                 },
                 "footer": {
                   "type": "boolean",

@@ -64,28 +64,30 @@ func TestValidateRepositoryFeatures(t *testing.T) {
 			description: "validation will check both features but won't fail on API errors",
 		},
 		{
-			name: "add-comment with discussion: true",
+			// add-comment.discussions (plural) only controls permissions, not repository feature checks
+			// Repository feature validation for discussions is only triggered by create-discussion
+			name: "add-comment with discussions: true does not trigger repository feature check",
 			workflowData: &WorkflowData{
 				SafeOutputs: &SafeOutputsConfig{
 					AddComments: &AddCommentsConfig{
-						Discussion: boolPtr(true),
-					},
-				},
-			},
-			expectError: false, // Will not error if getCurrentRepository fails or API call fails
-			description: "validation will check discussions for add-comment but won't fail on API errors",
-		},
-		{
-			name: "add-comment with discussion: false",
-			workflowData: &WorkflowData{
-				SafeOutputs: &SafeOutputsConfig{
-					AddComments: &AddCommentsConfig{
-						Discussion: boolPtr(false),
+						Discussions: boolPtr(true),
 					},
 				},
 			},
 			expectError: false,
-			description: "should pass when add-comment targets issues/PRs, not discussions",
+			description: "add-comment.discussions only controls permissions; no discussions feature check is performed",
+		},
+		{
+			name: "add-comment with discussions: false does not trigger repository feature check",
+			workflowData: &WorkflowData{
+				SafeOutputs: &SafeOutputsConfig{
+					AddComments: &AddCommentsConfig{
+						Discussions: boolPtr(false),
+					},
+				},
+			},
+			expectError: false,
+			description: "add-comment.discussions only controls permissions; no discussions feature check is performed",
 		},
 	}
 
