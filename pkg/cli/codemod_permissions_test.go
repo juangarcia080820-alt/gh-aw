@@ -428,3 +428,124 @@ This workflow needs permissions.`
 	assert.Contains(t, result, "# Test Workflow")
 	assert.Contains(t, result, "This workflow needs permissions.")
 }
+
+func TestWritePermissionsCodemod_SkipsIdToken(t *testing.T) {
+	codemod := getMigrateWritePermissionsToReadCodemod()
+
+	content := `---
+on: workflow_dispatch
+permissions:
+  contents: read
+  id-token: write
+---
+
+# Test`
+
+	frontmatter := map[string]any{
+		"on": "workflow_dispatch",
+		"permissions": map[string]any{
+			"contents": "read",
+			"id-token": "write",
+		},
+	}
+
+	result, applied, err := codemod.Apply(content, frontmatter)
+
+	require.NoError(t, err, "codemod should not return an error")
+	assert.False(t, applied, "Should not be applied when only write-only permissions have write")
+	assert.Equal(t, content, result, "codemod result should be unchanged when only write-only permissions have write")
+	assert.Contains(t, result, "id-token: write", "id-token permission should remain write after codemod")
+	assert.NotContains(t, result, "id-token: read", "id-token should never be converted to read")
+}
+
+func TestWritePermissionsCodemod_SkipsCopilotRequests(t *testing.T) {
+	codemod := getMigrateWritePermissionsToReadCodemod()
+
+	content := `---
+on: workflow_dispatch
+permissions:
+  contents: read
+  copilot-requests: write
+---
+
+# Test`
+
+	frontmatter := map[string]any{
+		"on": "workflow_dispatch",
+		"permissions": map[string]any{
+			"contents":         "read",
+			"copilot-requests": "write",
+		},
+	}
+
+	result, applied, err := codemod.Apply(content, frontmatter)
+
+	require.NoError(t, err, "codemod should not return an error")
+	assert.False(t, applied, "Should not be applied when only write-only permissions have write")
+	assert.Equal(t, content, result, "codemod result should be unchanged when only write-only permissions have write")
+	assert.Contains(t, result, "copilot-requests: write", "copilot-requests permission should remain write after codemod")
+	assert.NotContains(t, result, "copilot-requests: read", "copilot-requests should never be converted to read")
+}
+
+func TestWritePermissionsCodemod_MixedWithIdToken(t *testing.T) {
+	codemod := getMigrateWritePermissionsToReadCodemod()
+
+	content := `---
+on: workflow_dispatch
+permissions:
+  contents: write
+  issues: write
+  id-token: write
+---
+
+# Test`
+
+	frontmatter := map[string]any{
+		"on": "workflow_dispatch",
+		"permissions": map[string]any{
+			"contents": "write",
+			"issues":   "write",
+			"id-token": "write",
+		},
+	}
+
+	result, applied, err := codemod.Apply(content, frontmatter)
+
+	require.NoError(t, err, "codemod should not return an error")
+	assert.True(t, applied, "codemod should be applied when non-write-only permissions have write")
+	assert.Contains(t, result, "contents: read", "contents permission should be downgraded from write to read")
+	assert.Contains(t, result, "issues: read", "issues permission should be downgraded from write to read")
+	// id-token must remain write — "read" is not a valid value for it
+	assert.Contains(t, result, "id-token: write", "id-token permission should remain write after codemod")
+	assert.NotContains(t, result, "id-token: read", "id-token should never be converted to read")
+}
+
+func TestWritePermissionsCodemod_MixedWithCopilotRequests(t *testing.T) {
+	codemod := getMigrateWritePermissionsToReadCodemod()
+
+	content := `---
+on: workflow_dispatch
+permissions:
+  contents: write
+  copilot-requests: write
+---
+
+# Test`
+
+	frontmatter := map[string]any{
+		"on": "workflow_dispatch",
+		"permissions": map[string]any{
+			"contents":         "write",
+			"copilot-requests": "write",
+		},
+	}
+
+	result, applied, err := codemod.Apply(content, frontmatter)
+
+	require.NoError(t, err, "codemod should not return an error")
+	assert.True(t, applied, "codemod should be applied when non-write-only permissions have write")
+	assert.Contains(t, result, "contents: read", "contents permission should be downgraded from write to read")
+	// copilot-requests must remain write — "read" is not a valid value for it
+	assert.Contains(t, result, "copilot-requests: write", "copilot-requests permission should remain write after codemod")
+	assert.NotContains(t, result, "copilot-requests: read", "copilot-requests should never be converted to read")
+}
