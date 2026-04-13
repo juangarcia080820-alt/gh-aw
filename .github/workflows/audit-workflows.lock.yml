@@ -1394,8 +1394,8 @@ jobs:
       - agent
       - detection
     if: >
-      always() && (needs.detection.result == 'success' || needs.detection.result == 'skipped') &&
-      needs.agent.result == 'success'
+      always() && (!cancelled()) && (needs.detection.result == 'success' || needs.detection.result == 'skipped') &&
+      needs.agent.result != 'skipped'
     runs-on: ubuntu-slim
     permissions:
       contents: write
