@@ -23,7 +23,71 @@ import os from "os";
 const require = createRequire(import.meta.url);
 
 // Import module once – globals are resolved at call time, not import time.
-const { pushSignedCommits } = require("./push_signed_commits.cjs");
+const { pushSignedCommits, unquoteCPath } = require("./push_signed_commits.cjs");
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Unit tests for unquoteCPath
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("unquoteCPath", () => {
+  it("should return unquoted strings unchanged", () => {
+    expect(unquoteCPath("simple.txt")).toBe("simple.txt");
+    expect(unquoteCPath("path/to/file.txt")).toBe("path/to/file.txt");
+    expect(unquoteCPath("")).toBe("");
+  });
+
+  it("should strip surrounding double-quotes from plain filenames", () => {
+    expect(unquoteCPath('"hello.txt"')).toBe("hello.txt");
+    expect(unquoteCPath('"path/to/file.txt"')).toBe("path/to/file.txt");
+  });
+
+  it("should unescape standard C escape sequences", () => {
+    expect(unquoteCPath('"back\\\\slash"')).toBe("back\\slash");
+    expect(unquoteCPath('"double\\"quote"')).toBe('double"quote');
+    expect(unquoteCPath('"new\\nline"')).toBe("new\nline");
+    expect(unquoteCPath('"tab\\there"')).toBe("tab\there");
+    expect(unquoteCPath('"carriage\\rreturn"')).toBe("carriage\rreturn");
+    expect(unquoteCPath('"form\\ffeed"')).toBe("form\ffeed");
+    expect(unquoteCPath('"bell\\achar"')).toBe("bell\x07char");
+    expect(unquoteCPath('"back\\bspace"')).toBe("back\bspace");
+    expect(unquoteCPath('"vertical\\vtab"')).toBe("vertical\x0btab");
+  });
+
+  it("should decode octal sequences as UTF-8 bytes (unicode filenames)", () => {
+    // é = U+00E9 → UTF-8: 0xC3 0xA9 → octal \303\251
+    expect(unquoteCPath('"h\\303\\251llo.txt"')).toBe("héllo.txt");
+    // ö = U+00F6 → UTF-8: 0xC3 0xB6 → octal \303\266
+    expect(unquoteCPath('"w\\303\\266rld.txt"')).toBe("wörld.txt");
+  });
+
+  it("should decode filenames with spaces (git quotes when core.quotePath=true)", () => {
+    // git does NOT actually quote spaces alone (only non-ASCII), but the function
+    // must correctly pass through quoted strings that happen to contain spaces.
+    expect(unquoteCPath('"hello world.txt"')).toBe("hello world.txt");
+  });
+
+  it("should preserve unknown escape sequences with backslash intact", () => {
+    // '\x' is not a known escape – backslash is kept
+    expect(unquoteCPath('"foo\\xbar"')).toBe("foo\\xbar");
+  });
+
+  it("should handle a quoted string with only one character", () => {
+    expect(unquoteCPath('"a"')).toBe("a");
+  });
+
+  it("should handle a quoted empty string", () => {
+    expect(unquoteCPath('""')).toBe("");
+  });
+
+  it("should handle 1-, 2-, and 3-digit octal sequences", () => {
+    // \0 = 0x00 (NUL – unusual but valid)
+    expect(unquoteCPath('"\\0"')).toBe("\x00");
+    // \77 = 0x3F = '?'
+    expect(unquoteCPath('"\\77"')).toBe("?");
+    // \101 = 0x41 = 'A'
+    expect(unquoteCPath('"\\101"')).toBe("A");
+  });
+});
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Git helpers (real subprocess – no mocking)
@@ -676,6 +740,147 @@ describe("push_signed_commits integration tests", () => {
       expect(githubClient.graphql).toHaveBeenCalledTimes(1);
       // No warnings should be emitted for regular files
       expect(mockCore.warning).not.toHaveBeenCalled();
+    });
+  });
+
+  // ──────────────────────────────────────────────────────
+  // C-quoted (special character) filenames
+  // ──────────────────────────────────────────────────────
+
+  describe("C-quoted filenames (spaces and unicode)", () => {
+    it("should handle filenames with spaces", async () => {
+      execGit(["checkout", "-b", "spaces-branch"], { cwd: workDir });
+
+      const spacedName = "hello world.txt";
+      fs.writeFileSync(path.join(workDir, spacedName), "spaced content\n");
+      execGit(["add", spacedName], { cwd: workDir });
+      execGit(["commit", "-m", "Add file with spaces"], { cwd: workDir });
+      execGit(["push", "-u", "origin", "spaces-branch"], { cwd: workDir });
+
+      global.exec = makeRealExec(workDir);
+      const githubClient = makeMockGithubClient();
+
+      await pushSignedCommits({
+        githubClient,
+        owner: "test-owner",
+        repo: "test-repo",
+        branch: "spaces-branch",
+        baseRef: "origin/main",
+        cwd: workDir,
+      });
+
+      expect(githubClient.graphql).toHaveBeenCalledTimes(1);
+      const callArg = githubClient.graphql.mock.calls[0][1].input;
+      expect(callArg.fileChanges.additions).toHaveLength(1);
+      expect(callArg.fileChanges.additions[0].path).toBe(spacedName);
+      expect(Buffer.from(callArg.fileChanges.additions[0].contents, "base64").toString()).toBe("spaced content\n");
+    });
+
+    it("should handle filenames with unicode characters", async () => {
+      execGit(["checkout", "-b", "unicode-branch"], { cwd: workDir });
+
+      const unicodeName = "héllo_wörld.txt";
+      fs.writeFileSync(path.join(workDir, unicodeName), "unicode content\n");
+      execGit(["add", unicodeName], { cwd: workDir });
+      execGit(["commit", "-m", "Add file with unicode name"], { cwd: workDir });
+      execGit(["push", "-u", "origin", "unicode-branch"], { cwd: workDir });
+
+      global.exec = makeRealExec(workDir);
+      const githubClient = makeMockGithubClient();
+
+      await pushSignedCommits({
+        githubClient,
+        owner: "test-owner",
+        repo: "test-repo",
+        branch: "unicode-branch",
+        baseRef: "origin/main",
+        cwd: workDir,
+      });
+
+      expect(githubClient.graphql).toHaveBeenCalledTimes(1);
+      const callArg = githubClient.graphql.mock.calls[0][1].input;
+      expect(callArg.fileChanges.additions).toHaveLength(1);
+      expect(callArg.fileChanges.additions[0].path).toBe(unicodeName);
+      expect(Buffer.from(callArg.fileChanges.additions[0].contents, "base64").toString()).toBe("unicode content\n");
+    });
+  });
+
+  // ──────────────────────────────────────────────────────
+  // Rename and copy file handling
+  // ──────────────────────────────────────────────────────
+
+  describe("rename and copy file handling", () => {
+    it("should add old path to deletions and new path to additions on rename", async () => {
+      execGit(["checkout", "-b", "rename-branch"], { cwd: workDir });
+
+      // Add a file that will be renamed
+      fs.writeFileSync(path.join(workDir, "original.txt"), "rename me\n");
+      execGit(["add", "original.txt"], { cwd: workDir });
+      execGit(["commit", "-m", "Add original.txt"], { cwd: workDir });
+      execGit(["push", "-u", "origin", "rename-branch"], { cwd: workDir });
+
+      // Rename the file
+      fs.renameSync(path.join(workDir, "original.txt"), path.join(workDir, "renamed.txt"));
+      execGit(["add", "-A"], { cwd: workDir });
+      execGit(["commit", "-m", "Rename original.txt to renamed.txt"], { cwd: workDir });
+      execGit(["push", "origin", "rename-branch"], { cwd: workDir });
+
+      global.exec = makeRealExec(workDir);
+      const githubClient = makeMockGithubClient();
+
+      await pushSignedCommits({
+        githubClient,
+        owner: "test-owner",
+        repo: "test-repo",
+        branch: "rename-branch",
+        baseRef: "rename-branch^",
+        cwd: workDir,
+      });
+
+      expect(githubClient.graphql).toHaveBeenCalledTimes(1);
+      const callArg = githubClient.graphql.mock.calls[0][1].input;
+      // Old path must be deleted, new path must be in additions
+      expect(callArg.fileChanges.deletions).toEqual([{ path: "original.txt" }]);
+      expect(callArg.fileChanges.additions).toHaveLength(1);
+      expect(callArg.fileChanges.additions[0].path).toBe("renamed.txt");
+      expect(Buffer.from(callArg.fileChanges.additions[0].contents, "base64").toString()).toBe("rename me\n");
+    });
+
+    it("should not add source to deletions on copy (only destination in additions)", async () => {
+      execGit(["checkout", "-b", "copy-branch"], { cwd: workDir });
+
+      // Add a file that will be copied
+      fs.writeFileSync(path.join(workDir, "source.txt"), "copy source\n");
+      execGit(["add", "source.txt"], { cwd: workDir });
+      execGit(["commit", "-m", "Add source.txt"], { cwd: workDir });
+      execGit(["push", "-u", "origin", "copy-branch"], { cwd: workDir });
+
+      // Copy the file (source kept, destination added)
+      fs.copyFileSync(path.join(workDir, "source.txt"), path.join(workDir, "destination.txt"));
+      execGit(["add", "destination.txt"], { cwd: workDir });
+      execGit(["commit", "-m", "Copy source.txt to destination.txt"], { cwd: workDir });
+      execGit(["push", "origin", "copy-branch"], { cwd: workDir });
+
+      global.exec = makeRealExec(workDir);
+      const githubClient = makeMockGithubClient();
+
+      await pushSignedCommits({
+        githubClient,
+        owner: "test-owner",
+        repo: "test-repo",
+        branch: "copy-branch",
+        baseRef: "copy-branch^",
+        cwd: workDir,
+      });
+
+      expect(githubClient.graphql).toHaveBeenCalledTimes(1);
+      const callArg = githubClient.graphql.mock.calls[0][1].input;
+      // Source file must NOT appear in deletions
+      expect(callArg.fileChanges.deletions).toHaveLength(0);
+      // Destination file must appear in additions
+      expect(callArg.fileChanges.additions).toHaveLength(1);
+      expect(callArg.fileChanges.additions[0].path).toBe("destination.txt");
+      expect(Buffer.from(callArg.fileChanges.additions[0].contents, "base64").toString()).toBe("copy source\n");
     });
   });
 });
