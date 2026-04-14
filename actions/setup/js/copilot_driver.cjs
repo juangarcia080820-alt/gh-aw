@@ -45,6 +45,11 @@ const CAPI_ERROR_400_PATTERN = /CAPIError:\s*400/;
 // This is a persistent policy configuration error — retrying will not help.
 const MCP_POLICY_BLOCKED_PATTERN = /MCP servers were blocked by policy:/;
 
+// Pattern to detect "model not supported" error (e.g. Copilot Pro/Education users hitting
+// a model that is unavailable for their subscription tier).
+// This is a persistent configuration error — retrying with --resume will not help.
+const MODEL_NOT_SUPPORTED_PATTERN = /The requested model is not supported/;
+
 // Pattern to detect missing authentication credentials.
 // This error means no auth token is available in the environment; retrying will not help
 // because the missing token will still be absent on every subsequent attempt.
@@ -78,6 +83,17 @@ function isTransientCAPIError(output) {
  */
 function isMCPPolicyError(output) {
   return MCP_POLICY_BLOCKED_PATTERN.test(output);
+}
+
+/**
+ * Determines if the collected output indicates the requested model is not supported.
+ * This occurs when a Copilot Pro/Education user attempts to use a model that is not
+ * available for their subscription tier.  Retrying will not help.
+ * @param {string} output - Collected stdout+stderr from the process
+ * @returns {boolean}
+ */
+function isModelNotSupportedError(output) {
+  return MODEL_NOT_SUPPORTED_PATTERN.test(output);
 }
 
 /**
@@ -262,15 +278,18 @@ async function main() {
     // Retry whenever the session was partially executed (hasOutput), using --continue so that
     // the Copilot CLI can continue from where it left off.  CAPIError 400 is the well-known
     // transient case, but any partial-execution failure is eligible for a continue retry.
-    // Exceptions: MCP policy errors and auth errors are persistent — never retry.
+    // Exceptions: MCP policy errors, model-not-supported errors, and auth errors are persistent
+    // configuration issues — never retry.
     const isCAPIError = isTransientCAPIError(result.output);
     const isMCPPolicy = isMCPPolicyError(result.output);
+    const isModelNotSupported = isModelNotSupportedError(result.output);
     const isAuthErr = isNoAuthInfoError(result.output);
     log(
       `attempt ${attempt + 1} failed:` +
         ` exitCode=${result.exitCode}` +
         ` isCAPIError400=${isCAPIError}` +
         ` isMCPPolicyError=${isMCPPolicy}` +
+        ` isModelNotSupportedError=${isModelNotSupported}` +
         ` isAuthError=${isAuthErr}` +
         ` hasOutput=${result.hasOutput}` +
         ` retriesRemaining=${MAX_RETRIES - attempt}`
@@ -279,6 +298,12 @@ async function main() {
     // MCP policy errors are persistent — retrying will not help.
     if (isMCPPolicy) {
       log(`attempt ${attempt + 1}: MCP servers blocked by policy — not retrying (this is a policy configuration issue, not a transient error)`);
+      break;
+    }
+
+    // Model-not-supported errors are persistent — retrying will not help.
+    if (isModelNotSupported) {
+      log(`attempt ${attempt + 1}: model not supported — not retrying (the requested model is unavailable for this subscription tier; specify a supported model in the workflow frontmatter)`);
       break;
     }
 
