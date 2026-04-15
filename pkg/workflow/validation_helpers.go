@@ -116,6 +116,79 @@ func validateStringEnumField(configData map[string]any, fieldName string, allowe
 	}
 }
 
+// preprocessProtectedFilesField preprocesses the "protected-files" field in configData,
+// handling both the legacy string-enum form and the new object form.
+//
+// String form (unchanged): "blocked", "allowed", or "fallback-to-issue".
+// Object form: { policy: "blocked", exclude: ["AGENTS.md"] }
+//   - policy is optional; when missing or empty, this preprocessing step treats it as absent
+//     and leaves downstream default handling to apply (the "protected-files" key is deleted)
+//   - exclude is a list of filenames/path-prefixes to remove from the default protected set
+//
+// When the object form is encountered the field is normalised in-place:
+//   - "protected-files" is replaced with the extracted policy string, or deleted when policy is absent/empty
+//   - The extracted exclude slice is returned so callers can store it in the config struct
+//
+// When the string form is encountered the field is left unchanged and nil is returned.
+// The log parameter is optional; pass nil to suppress debug output.
+func preprocessProtectedFilesField(configData map[string]any, log *logger.Logger) []string {
+	if configData == nil {
+		return nil
+	}
+	raw, exists := configData["protected-files"]
+	if !exists || raw == nil {
+		return nil
+	}
+	pfMap, ok := raw.(map[string]any)
+	if !ok {
+		// String form — left for validateStringEnumField to handle
+		return nil
+	}
+	// Object form: extract policy and exclude
+	if policy, ok := pfMap["policy"].(string); ok && policy != "" {
+		configData["protected-files"] = policy
+		if log != nil {
+			log.Printf("protected-files object form: policy=%s", policy)
+		}
+	} else {
+		delete(configData, "protected-files")
+		if log != nil {
+			log.Print("protected-files object form: no policy, using default")
+		}
+	}
+	return parseStringSliceAny(pfMap["exclude"], log)
+}
+
+// parseStringSliceAny coerces a raw any value into a []string.
+// It accepts a []string (returned as-is), []any (string elements extracted),
+// or nil (returns nil). The log parameter is optional; pass nil to suppress
+// debug output about skipped non-string elements.
+func parseStringSliceAny(raw any, log *logger.Logger) []string {
+	if raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		// Already the right type — return directly without copying.
+		return v
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			} else if log != nil {
+				log.Printf("parseStringSliceAny: skipping non-string item: %T", item)
+			}
+		}
+		return result
+	default:
+		if log != nil {
+			log.Printf("parseStringSliceAny: unexpected type %T, ignoring", raw)
+		}
+		return nil
+	}
+}
+
 // validateNoDuplicateIDs checks that all items have unique IDs extracted by idFunc.
 // The onDuplicate callback creates the error to return when a duplicate is found.
 func validateNoDuplicateIDs[T any](items []T, idFunc func(T) string, onDuplicate func(string) error) error {
