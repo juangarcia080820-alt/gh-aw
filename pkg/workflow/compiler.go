@@ -300,6 +300,12 @@ func (c *Compiler) validateWorkflowData(workflowData *WorkflowData, markdownPath
 		c.IncrementWarningCount()
 	}
 
+	// Inform users when this workflow is a redirect stub for updates.
+	if workflowData.Redirect != "" {
+		fmt.Fprintln(os.Stderr, formatCompilerMessage(markdownPath, "info",
+			"workflow redirect configured: updates move to "+workflowData.Redirect))
+	}
+
 	// Validate workflow_run triggers have branch restrictions
 	log.Printf("Validating workflow_run triggers for branch restrictions")
 	if err := c.validateWorkflowRunBranches(workflowData, markdownPath); err != nil {
@@ -762,7 +768,7 @@ func (c *Compiler) CompileWorkflowData(workflowData *WorkflowData, markdownPath 
 	// Emitting a warning instead of failing allows compilation to succeed so that the lock
 	// file is written and the agent receives the actionable guidance embedded in the warning.
 	if c.effectiveSafeUpdate(workflowData) {
-		if enforceErr := EnforceSafeUpdate(oldManifest, bodySecrets, bodyActions); enforceErr != nil {
+		if enforceErr := EnforceSafeUpdate(oldManifest, bodySecrets, bodyActions, workflowData.Redirect); enforceErr != nil {
 			warningMsg := buildSafeUpdateWarningPrompt(enforceErr.Error())
 			c.AddSafeUpdateWarning(warningMsg)
 			fmt.Fprintln(os.Stderr, formatCompilerMessage(markdownPath, "warning", enforceErr.Error()))
