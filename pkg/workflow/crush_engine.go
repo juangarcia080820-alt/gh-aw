@@ -24,11 +24,11 @@ func NewCrushEngine() *CrushEngine {
 			id:                     "crush",
 			displayName:            "Crush",
 			description:            "Crush CLI with headless mode and multi-provider LLM support",
-			experimental:           true,                          // Start as experimental until smoke tests pass consistently
-			supportsToolsAllowlist: false,                         // Crush manages its own tool permissions via .crush.json
-			supportsMaxTurns:       false,                         // No --max-turns flag in crush run
-			supportsWebSearch:      false,                         // Has built-in websearch but not exposed via gh-aw neutral tools yet
-			llmGatewayPort:         constants.CrushLLMGatewayPort, // Port 10004
+			experimental:           true,  // Start as experimental until smoke tests pass consistently
+			supportsToolsAllowlist: false, // Crush manages its own tool permissions via .crush.json
+			supportsMaxTurns:       false, // No --max-turns flag in crush run
+			supportsWebSearch:      false, // Has built-in websearch but not exposed via gh-aw neutral tools yet
+			llmGatewayPort:         constants.CrushLLMGatewayPort,
 		},
 	}
 }
@@ -278,7 +278,9 @@ func (e *CrushEngine) GetExecutionSteps(workflowData *WorkflowData, logFile stri
 // to prevent CI hanging on permission prompts.
 func (e *CrushEngine) generateCrushConfigStep(_ *WorkflowData) GitHubActionStep {
 	// Build the config JSON with all permissions set to allow
-	configJSON := `{"agent":{"build":{"permissions":{"bash":"allow","edit":"allow","read":"allow","glob":"allow","grep":"allow","write":"allow","webfetch":"allow","websearch":"allow"}}}}`
+	// OpenCode/Crush uses "permission" (singular) — "permissions" (plural) is silently ignored.
+	// "external_directory" must be "allow" in non-interactive CI mode (defaults to "ask" → implicit deny).
+	configJSON := `{"agent":{"build":{"permission":{"bash":"allow","edit":"allow","read":"allow","glob":"allow","grep":"allow","write":"allow","webfetch":"allow","websearch":"allow","external_directory":"allow"}}}}`
 
 	// Shell command to write or merge the config with restrictive permissions
 	command := fmt.Sprintf(`umask 077
