@@ -310,6 +310,73 @@ func TestCodexEngineRenderMCPConfig(t *testing.T) {
 	}
 }
 
+func TestCodexEngineRenderMCPConfigOpenAIProxyProvider(t *testing.T) {
+	engine := NewCodexEngine()
+
+	t.Run("injects openai-proxy provider when firewall is enabled", func(t *testing.T) {
+		tools := map[string]any{}
+		mcpTools := []string{}
+		var yaml strings.Builder
+		workflowData := &WorkflowData{
+			Name: "test-workflow",
+			NetworkPermissions: &NetworkPermissions{
+				Firewall: &FirewallConfig{Enabled: true},
+			},
+		}
+
+		if err := engine.RenderMCPConfig(&yaml, tools, mcpTools, workflowData); err != nil {
+			t.Fatalf("RenderMCPConfig returned unexpected error: %v", err)
+		}
+
+		result := yaml.String()
+		expectedLines := []string{
+			"model_provider = \"openai-proxy\"",
+			"[model_providers.openai-proxy]",
+			"name = \"OpenAI AWF proxy\"",
+			fmt.Sprintf("base_url = \"http://%s:%d\"", constants.AWFAPIProxyContainerIP, constants.ClaudeLLMGatewayPort),
+			"env_key = \"OPENAI_API_KEY\"",
+			"supports_websockets = false",
+		}
+
+		for _, expected := range expectedLines {
+			if !strings.Contains(result, expected) {
+				t.Errorf("Expected MCP config to contain %q, got:\n%s", expected, result)
+			}
+		}
+		if !strings.Contains(result, "awk '") {
+			t.Errorf("Expected firewall-enabled config append to use awk filtering, got:\n%s", result)
+		}
+	})
+
+	t.Run("does not inject openai-proxy provider when firewall is disabled", func(t *testing.T) {
+		tools := map[string]any{}
+		mcpTools := []string{}
+		var yaml strings.Builder
+		workflowData := &WorkflowData{Name: "test-workflow"}
+
+		if err := engine.RenderMCPConfig(&yaml, tools, mcpTools, workflowData); err != nil {
+			t.Fatalf("RenderMCPConfig returned unexpected error: %v", err)
+		}
+
+		result := yaml.String()
+		if strings.Contains(result, "model_provider = \"openai-proxy\"") {
+			t.Errorf("Did not expect openai-proxy provider when firewall is disabled, got:\n%s", result)
+		}
+		if strings.Contains(result, "awk '") {
+			t.Errorf("Did not expect awk filtering when firewall is disabled, got:\n%s", result)
+		}
+	})
+}
+
+func TestCodexEngineOpenAIProxyProviderBaseURL(t *testing.T) {
+	engine := NewCodexEngine()
+	expected := fmt.Sprintf("http://%s:%d", constants.AWFAPIProxyContainerIP, constants.ClaudeLLMGatewayPort)
+
+	if actual := engine.getOpenAIProxyProviderBaseURL(); actual != expected {
+		t.Errorf("Expected OpenAI proxy provider base URL %q, got %q", expected, actual)
+	}
+}
+
 func TestCodexEngineExecutionAddsMountedMCPCLIPathSetup(t *testing.T) {
 	engine := NewCodexEngine()
 	workflowData := &WorkflowData{
