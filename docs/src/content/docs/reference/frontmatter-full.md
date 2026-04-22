@@ -64,11 +64,10 @@ metadata:
 
 # Workflow specifications to import. Supports array form (list of paths) or object
 # form with 'aw' (agentic workflow paths) subfield. Path resolution: (1) relative
-# paths (e.g., 'shared/file.md') are
-# resolved relative to the workflow's directory; (2) paths starting with
-# '.github/' or '/' are resolved from the repository root (repo-root-relative);
-# (3) paths matching 'owner/repo/path@ref' are fetched from GitHub at compile time
-# (cross-repo).
+# paths (e.g., 'shared/file.md') are resolved relative to the workflow's
+# directory; (2) paths starting with '.github/' or '/' are resolved from the
+# repository root (repo-root-relative); (3) paths matching 'owner/repo/path@ref'
+# are fetched from GitHub at compile time (cross-repo).
 # (optional)
 # This field supports multiple formats (oneOf):
 
@@ -1310,6 +1309,10 @@ sandbox:
     # (optional)
     type: "awf"
 
+    # AWF version override used to install and run the matching firewall version.
+    # (optional)
+    version: "example-value"
+
     # Container mounts to add when using AWF. Each mount is specified using Docker
     # mount syntax: 'source:destination:mode' where mode can be 'ro' (read-only) or
     # 'rw' (read-write). Example: '/host/path:/container/path:ro'
@@ -1566,6 +1569,12 @@ engine:
   # should be the full path to the executable or a command available in PATH.
   # (optional)
   command: "example-value"
+
+  # Custom Node.js driver script filename for an agentic engine. This replaces the
+  # engine's built-in driver wrapper (when the engine supports one) and must end
+  # with .js, .cjs, or .mjs.
+  # (optional)
+  driver: "example-value"
 
   # Custom environment variables to pass to the AI engine, including secret
   # overrides (e.g., OPENAI_API_KEY: ${{ secrets.CUSTOM_KEY }})
@@ -1863,10 +1872,17 @@ tools:
     allowed: []
       # Array of strings
 
-    # MCP server mode: 'local' (Docker-based, default) or 'remote' (hosted at
-    # api.githubcopilot.com)
+    # GitHub access mode. Prefer 'gh-proxy' for better performance (uses
+    # pre-authenticated gh CLI prompt guidance). Legacy MCP transport values 'local'
+    # and 'remote' are accepted for backward compatibility and use GitHub MCP server
+    # prompt guidance.
     # (optional)
-    mode: "local"
+    mode: "gh-proxy"
+
+    # GitHub MCP transport type: 'local' (Docker-based, default) or 'remote' (hosted
+    # at api.githubcopilot.com)
+    # (optional)
+    type: "local"
 
     # Optional version specification for the GitHub MCP server (used with 'local'
     # type). Can be a string (e.g., 'v1.0.0', 'latest') or number (e.g., 20, 3.11).
@@ -2165,6 +2181,65 @@ tools:
   # Option 4: Array of cache-memory configurations for multiple caches
   cache-memory: []
     # Array items: object
+
+  # Comment memory configuration for managed comment persistence
+  # (optional)
+  # This field supports multiple formats (oneOf):
+
+  # Option 1: Configuration for persisting memory in a managed issue/PR comment.
+  # Memory is materialized to files for agent editing and synchronized back after
+  # execution.
+  comment-memory:
+    # Maximum number of comment_memory updates to process (default: 1). Supports
+    # integer or GitHub Actions expression.
+    # (optional)
+    # This field supports multiple formats (oneOf):
+
+    # Option 1: integer
+    max: 1
+
+    # Option 2: GitHub Actions expression that resolves to an integer at runtime
+    max: "example-value"
+
+    # Target for comment memory: 'triggering' (default), '*' (current issue/PR), or
+    # explicit issue/PR number
+    # (optional)
+    target: "example-value"
+
+    # Target repository in format 'owner/repo' for cross-repository memory storage.
+    # (optional)
+    target-repo: "example-value"
+
+    # Additional repositories in format 'owner/repo' allowed for comment memory
+    # operations.
+    # (optional)
+    allowed-repos: []
+      # Array of strings
+
+    # Default memory identifier when output items omit memory_id.
+    # (optional)
+    memory-id: "example-value"
+
+    # Controls whether AI-generated footer is added to the managed comment. Defaults
+    # to true.
+    # (optional)
+    footer: true
+
+    # GitHub token to use for comment-memory operations. Overrides global github-token
+    # if specified.
+    # (optional)
+    github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+    # If true, emit step summary messages instead of making GitHub API calls for this
+    # specific output type (preview mode)
+    # (optional)
+    staged: true
+
+  # Option 2: Enable (true) or disable (false) comment-memory.
+  comment-memory: true
+
+  # Option 3: Explicitly disable comment-memory
+  comment-memory: null
 
   # Timeout in seconds for tool/MCP server operations. Applies to all tools and MCP
   # servers if supported by the engine. Default: 60 seconds (for both Claude and
@@ -3706,6 +3781,13 @@ safe-outputs:
     # (optional)
     allowed-events: []
       # Array of strings
+
+    # When true, after posting a replacement review this workflow dismisses older
+    # REQUEST_CHANGES reviews previously posted by the same workflow on the same pull
+    # request. This is best-effort and requires workflow markers in prior review
+    # bodies.
+    # (optional)
+    supersede-older-reviews: true
 
     # GitHub token to use for this specific output type. Overrides global github-token
     # if specified.
@@ -5548,6 +5630,12 @@ safe-outputs:
   # Actions expressions.
   # (optional)
   concurrency-group: "example-value"
+
+  # Explicit additional custom workflow jobs that the consolidated safe_outputs job
+  # should depend on.
+  # (optional)
+  needs: []
+    # Array of strings
 
   # Override the GitHub deployment environment for the safe-outputs job. When set,
   # this environment is used instead of the top-level environment: field. When not

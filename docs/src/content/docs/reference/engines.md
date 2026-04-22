@@ -18,28 +18,35 @@ Set `engine:` in your workflow frontmatter and configure the corresponding secre
 | [OpenAI Codex](https://openai.com/blog/openai-codex) | `codex` | [OPENAI_API_KEY](/gh-aw/reference/auth/#openai_api_key) |
 | [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) | `gemini` | [GEMINI_API_KEY](/gh-aw/reference/auth/#gemini_api_key) |
 | [Crush](https://github.com/@charmland/crush/crush) (experimental) | `crush` | [COPILOT_GITHUB_TOKEN](/gh-aw/reference/auth/#copilot_github_token) |
+| [OpenCode](https://opencode.ai) (experimental) | `opencode` | [COPILOT_GITHUB_TOKEN](/gh-aw/reference/auth/#copilot_github_token) |
 
 Copilot CLI is the default — `engine:` can be omitted when using Copilot. See the linked authentication docs for secret setup instructions.
+
+## Which engine should I choose?
+
+Copilot is the default choice for most users because it supports the broadest gh-aw feature set, including custom agents and autopilot-style continuations. Choose Claude when you want stronger control over turn limits (`max-turns`) for long reasoning sessions. Choose Gemini or Codex when those models are already part of existing tooling or budget decisions. If you are unsure, start with Copilot and switch later by changing only `engine:` and the corresponding secret.
 
 ## Engine Feature Comparison
 
 Not all features are available across all engines. The table below summarizes per-engine support for commonly used workflow options:
 
-| Feature | Copilot | Claude | Codex | Gemini | Crush |
-|---------|:-------:|:------:|:-----:|:------:|:--------:|
-| `max-turns` | ❌ | ✅ | ❌ | ❌ | ❌ |
-| `max-continuations` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `tools.web-fetch` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `tools.web-search` | via MCP | via MCP | ✅ (opt-in) | via MCP | via MCP |
-| `engine.agent` (custom agent file) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `engine.api-target` (custom endpoint) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Tools allowlist | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Feature | Copilot | Claude | Codex | Gemini | Crush | OpenCode |
+|---------|:-------:|:------:|:-----:|:------:|:-----:|:--------:|
+| `max-turns` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `max-continuations` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `tools.web-fetch` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `tools.web-search` | via MCP | via MCP | ✅ (opt-in) | via MCP | via MCP | via MCP |
+| `engine.agent` (custom agent file) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `engine.api-target` (custom endpoint) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `engine.driver` (custom driver script) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Tools allowlist | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 
 **Notes:**
 - `max-turns` limits the number of AI chat iterations per run (Claude only).
 - `max-continuations` enables autopilot mode with multiple consecutive runs (Copilot only).
 - `web-search` for Codex is disabled by default; add `tools: web-search:` to enable it. Other engines use a third-party MCP server — see [Using Web Search](/gh-aw/guides/web-search/).
 - `engine.agent` references a `.github/agents/` file for custom Copilot agent behavior. See [Copilot Custom Configuration](#copilot-custom-configuration).
+- `engine.driver` allows replacing the built-in Copilot driver script. See [Custom Driver Script](#custom-driver-script-driver) below.
 
 ## Extended Coding Agent Configuration
 
@@ -67,6 +74,7 @@ By default, workflows install the latest available version of each engine CLI. T
 | Codex | `codex` | `"0.111.0"` |
 | Gemini CLI | `gemini` | `"0.31.0"` |
 | Crush | `crush` | `"1.2.14"` |
+| OpenCode | `opencode` | `"0.1.0"` |
 
 ```yaml wrap
 engine:
@@ -206,6 +214,30 @@ engine:
   args: ["--verbose"]
 ```
 
+### Custom Driver Script (`driver`)
+
+The `driver` field lets you replace the built-in Node.js driver wrapper that the Copilot engine uses to launch the CLI. Use this when you need to customise startup behaviour, inject pre/post hooks, or test an alternative driver implementation.
+
+```yaml wrap
+engine:
+  id: copilot
+  driver: custom_copilot_driver.cjs
+```
+
+The value must be a bare filename — no directory separators, no `..`, and no shell metacharacters. It must end with `.js`, `.cjs`, or `.mjs`. When `driver` is set, AWF automatically ensures Node 24 is available in the runner environment.
+
+> [!NOTE]
+> `engine.driver` is currently only applied during Copilot engine execution. Setting it on other engines has no effect.
+
+**Validation rules:**
+
+| Rule | Valid example | Invalid example |
+|------|--------------|-----------------|
+| Bare filename only | `my_driver.cjs` | `subdir/driver.cjs` |
+| No path traversal | `driver.mjs` | `../driver.cjs` |
+| Must start with `[A-Za-z0-9_]` | `driver.js` | `-driver.cjs` |
+| Must end with `.js`, `.cjs`, or `.mjs` | `wrapper.cjs` | `driver.sh` |
+
 ### Custom Token Weights (`token-weights`)
 
 Override the built-in token cost multipliers used when computing [Effective Tokens](/gh-aw/reference/effective-tokens-specification/). Useful when your workflow uses a custom model not in the built-in list, or when you want to adjust the relative cost ratios for your use case.
@@ -299,13 +331,13 @@ timeout-minutes: 60
 
 ### Summary Table
 
-| Timeout knob | Copilot | Claude | Codex | Gemini | Crush | Notes |
-|---|:---:|:---:|:---:|:---:|:---:|---|
-| `timeout-minutes` | ✅ | ✅ | ✅ | ✅ | ✅ | Job-level wall clock |
-| `tools.timeout` | ✅ | ✅ | ✅ | ✅ | ✅ | Per tool-call limit (seconds) |
-| `tools.startup-timeout` | ✅ | ✅ | ✅ | ✅ | ✅ | MCP server startup limit |
-| `max-turns` | ❌ | ✅ | ❌ | ❌ | ❌ | Iteration budget (Claude only) |
-| `max-continuations` | ✅ | ❌ | ❌ | ❌ | ❌ | Autopilot run budget (Copilot only) |
+| Timeout knob | Copilot | Claude | Codex | Gemini | Crush | OpenCode | Notes |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| `timeout-minutes` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Job-level wall clock |
+| `tools.timeout` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | Per tool-call limit (seconds) |
+| `tools.startup-timeout` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | MCP server startup limit |
+| `max-turns` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | Iteration budget (Claude only) |
+| `max-continuations` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | Autopilot run budget (Copilot only) |
 
 ## Related Documentation
 

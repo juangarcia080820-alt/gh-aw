@@ -246,7 +246,7 @@
         },
         "reply_to_id": {
           "type": "string",
-          "description": "Node ID of the discussion comment to reply to, enabling threaded discussion comments. When provided, the new comment is posted as a reply to the specified top-level discussion comment. If the given node ID belongs to a nested reply, the handler automatically resolves it to the top-level parent. Only applicable for discussion comments — ignored for issue and pull request comments."
+          "description": "Node ID of the discussion comment to reply to, enabling threaded discussion comments. When provided, the new comment is posted as a reply to the specified top-level discussion comment. If the given node ID belongs to a nested reply, the handler automatically resolves it to the top-level parent. Only applicable for discussion comments \u2014 ignored for issue and pull request comments."
         },
         "secrecy": {
           "type": "string",
@@ -360,7 +360,7 @@
   },
   {
     "name": "submit_pull_request_review",
-    "description": "Submit a pull request review with a status decision. All create_pull_request_review_comment outputs are automatically collected and included as inline comments in this review. Use APPROVE to approve the PR, REQUEST_CHANGES to request changes, or COMMENT for general feedback without a decision. If you don't call this tool, review comments are still submitted as a COMMENT review.",
+    "description": "Submit a pull request review with a status decision. All create_pull_request_review_comment outputs are automatically collected and included as inline comments in this review. Preferred default: use COMMENT for informative, non-blocking bot feedback. Use REQUEST_CHANGES only when merge-blocking is intentionally required. If you don't call this tool, review comments are still submitted as a COMMENT review.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -934,7 +934,7 @@
         "temporary_id": {
           "type": "string",
           "pattern": "^aw_[A-Za-z0-9_]{3,12}$",
-          "description": "Optional temporary identifier for this artifact upload. Format: 'aw_' followed by 3 to 12 alphanumeric or underscore characters (e.g., 'aw_chart1', 'aw_img_out'). Declare this ID here if you plan to embed the artifact URL in a subsequent message body using '#aw_ID' — for example '![chart](#aw_chart1)' in a create_discussion body. The safe-outputs processor replaces '#aw_ID' references with the actual artifact download URL after upload. When skip-archive is true the URL points directly to the file and is suitable for inline images."
+          "description": "Optional temporary identifier for this artifact upload. Format: 'aw_' followed by 3 to 12 alphanumeric or underscore characters (e.g., 'aw_chart1', 'aw_img_out'). Declare this ID here if you plan to embed the artifact URL in a subsequent message body using '#aw_ID' \u2014 for example '![chart](#aw_chart1)' in a create_discussion body. The safe-outputs processor replaces '#aw_ID' references with the actual artifact download URL after upload. When skip-archive is true the URL points directly to the file and is suitable for inline images."
         },
         "secrecy": {
           "type": "string",

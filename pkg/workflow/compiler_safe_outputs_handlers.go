@@ -43,6 +43,22 @@ var handlerRegistry = map[string]handlerBuilder{
 			AddIfTrue("staged", c.Staged).
 			Build()
 	},
+	"comment_memory": func(cfg *SafeOutputsConfig) map[string]any {
+		if cfg.CommentMemory == nil {
+			return nil
+		}
+		c := cfg.CommentMemory
+		return newHandlerConfigBuilder().
+			AddTemplatableInt("max", c.Max).
+			AddIfNotEmpty("target", c.Target).
+			AddIfNotEmpty("target-repo", c.TargetRepoSlug).
+			AddStringSlice("allowed_repos", c.AllowedRepos).
+			AddIfNotEmpty("memory_id", c.MemoryID).
+			AddTemplatableBool("footer", getEffectiveFooterForTemplatable(c.Footer, cfg.Footer)).
+			AddIfNotEmpty("github-token", c.GitHubToken).
+			AddIfTrue("staged", c.Staged).
+			Build()
+	},
 	"create_discussion": func(cfg *SafeOutputsConfig) map[string]any {
 		if cfg.CreateDiscussions == nil {
 			return nil
@@ -321,6 +337,7 @@ var handlerRegistry = map[string]handlerBuilder{
 			AddIfNotEmpty("target-repo", c.TargetRepoSlug).
 			AddStringSlice("allowed_repos", c.AllowedRepos).
 			AddStringSlice("allowed_events", c.AllowedEvents).
+			AddIfTrue("supersede_older_reviews", c.SupersedeOlderReviews).
 			AddIfNotEmpty("github-token", c.GitHubToken).
 			AddStringPtr("footer", getEffectiveFooterString(c.Footer, cfg.Footer)).
 			AddIfTrue("staged", c.Staged).
