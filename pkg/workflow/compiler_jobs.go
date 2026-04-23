@@ -873,6 +873,16 @@ func insertPreStepsAfterSetupBeforeCheckout(steps []string, preSteps []string) [
 	for i, step := range steps {
 		if firstCheckoutIdx == -1 && strings.Contains(step, "uses: actions/checkout@") {
 			firstCheckoutIdx = i
+			// Walk backward to the checkout step's list-item boundary ("- ").
+			// If no boundary is found, keep the current index so insertion still
+			// occurs before the checkout uses-line.
+			for j := i; j >= 0; j-- {
+				trimmed := strings.TrimLeft(steps[j], " ")
+				if strings.HasPrefix(trimmed, "- ") {
+					firstCheckoutIdx = j
+					break
+				}
+			}
 		}
 		if exactSetupStepIDPattern.MatchString(step) {
 			lastSetupIdx = i
@@ -881,7 +891,22 @@ func insertPreStepsAfterSetupBeforeCheckout(steps []string, preSteps []string) [
 
 	insertIdx := len(steps)
 	if lastSetupIdx >= 0 {
-		insertIdx = lastSetupIdx + 1
+		// Setup step may be emitted as multiple []string entries (one line per entry).
+		// Insert after the full setup step by finding the next step boundary.
+		// A step boundary is identified by the YAML list-item prefix ("- ") after
+		// indentation trimming, which marks the beginning of the next step block.
+		// If no boundary is found (e.g. setup is the final step), insertIdx stays len(steps)
+		// and pre-steps are appended by the slice insertion logic below.
+		for i := lastSetupIdx + 1; i < len(steps); i++ {
+			trimmed := strings.TrimLeft(steps[i], " ")
+			if strings.HasPrefix(trimmed, "- ") {
+				insertIdx = i
+				break
+			}
+		}
+		if insertIdx == len(steps) {
+			compilerJobsLog.Print("No step boundary found after setup step; appending pre-steps at end")
+		}
 	} else if firstCheckoutIdx >= 0 {
 		insertIdx = firstCheckoutIdx
 	}
