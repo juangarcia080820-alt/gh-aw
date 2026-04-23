@@ -60,8 +60,21 @@ func ParseFrontmatterConfig(frontmatter map[string]any) (*FrontmatterConfig, err
 		}
 	}
 
+	// Parse typed on.needs field if on exists
+	if len(config.On) > 0 {
+		onNeeds, err := parseOnNeedsConfig(config.On)
+		if err == nil {
+			config.OnNeeds = onNeeds
+			frontmatterTypesLog.Printf("Parsed typed on.needs config with %d entries", len(onNeeds))
+		}
+	}
+
 	frontmatterTypesLog.Printf("Successfully parsed frontmatter config: name=%s, engine=%v", config.Name, config.Engine)
 	return &config, nil
+}
+
+func parseOnNeedsConfig(on map[string]any) ([]string, error) {
+	return parseOnNeedsValues(on)
 }
 
 // parseRuntimesConfig converts a map[string]any to RuntimesConfig
