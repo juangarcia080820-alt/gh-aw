@@ -783,8 +783,9 @@ jobs:
             -- /bin/bash -c 'GH_AW_NODE_EXEC="${GH_AW_NODE_BIN:-}"; if [ -z "$GH_AW_NODE_EXEC" ] || [ ! -x "$GH_AW_NODE_EXEC" ]; then GH_AW_NODE_EXEC="$(command -v node 2>/dev/null || echo node)"; fi; "$GH_AW_NODE_EXEC" ${RUNNER_TEMP}/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --add-dir /tmp/gh-aw/ --log-level all --log-dir /tmp/gh-aw/sandbox/agent/logs/ --disable-builtin-mcps --no-ask-user --allow-tool github --allow-tool safeoutputs --allow-tool serena --allow-tool '\''shell(cat pkg/**/*.go)'\'' --allow-tool '\''shell(cat pkg/*/*.go)'\'' --allow-tool '\''shell(cat pkg/*/README.md)'\'' --allow-tool '\''shell(cat)'\'' --allow-tool '\''shell(date)'\'' --allow-tool '\''shell(echo)'\'' --allow-tool '\''shell(find pkg -maxdepth 1 -type d)'\'' --allow-tool '\''shell(find pkg -name '\''\'\'''\''*.go'\''\'\'''\'' ! -name '\''\'\'''\''*_test.go'\''\'\'''\'' -type f)'\'' --allow-tool '\''shell(find pkg -name '\''\'\'''\''README.md'\''\'\'''\'' -type f)'\'' --allow-tool '\''shell(find pkg -type f -name '\''\'\'''\''*.go'\''\'\'''\'' ! -name '\''\'\'''\''*_test.go'\''\'\'''\'')'\'' --allow-tool '\''shell(find pkg/ -maxdepth 1 -ls)'\'' --allow-tool '\''shell(find pkg/* -maxdepth 0 -type d)'\'' --allow-tool '\''shell(find pkg/workflow/ -maxdepth 1 -ls)'\'' --allow-tool '\''shell(git log --oneline --since='\''\'\'''\''30 days ago'\''\'\'''\'' -- pkg/*)'\'' --allow-tool '\''shell(git log --oneline --since='\''\'\'''\''7 days ago'\''\'\'''\'' -- pkg/*/README.md)'\'' --allow-tool '\''shell(git log -1 --format=%H -- pkg/*)'\'' --allow-tool '\''shell(grep -r '\''\'\'''\''func '\''\'\'''\'' pkg --include='\''\'\'''\''*.go'\''\'\'''\'')'\'' --allow-tool '\''shell(grep -rn '\''\'\'''\''const [A-Z]'\''\'\'''\'' pkg --include='\''\'\'''\''*.go'\''\'\'''\'')'\'' --allow-tool '\''shell(grep -rn '\''\'\'''\''func [A-Z]'\''\'\'''\'' pkg --include='\''\'\'''\''*.go'\''\'\'''\'')'\'' --allow-tool '\''shell(grep -rn '\''\'\'''\''import '\''\'\'''\'' pkg --include='\''\'\'''\''*.go'\''\'\'''\'')'\'' --allow-tool '\''shell(grep -rn '\''\'\'''\''package '\''\'\'''\'' pkg --include='\''\'\'''\''*.go'\''\'\'''\'')'\'' --allow-tool '\''shell(grep -rn '\''\'\'''\''type [A-Z]'\''\'\'''\'' pkg --include='\''\'\'''\''*.go'\''\'\'''\'')'\'' --allow-tool '\''shell(grep)'\'' --allow-tool '\''shell(head -n * pkg/**/*.go)'\'' --allow-tool '\''shell(head -n * pkg/*/*.go)'\'' --allow-tool '\''shell(head)'\'' --allow-tool '\''shell(ls)'\'' --allow-tool '\''shell(pwd)'\'' --allow-tool '\''shell(sort)'\'' --allow-tool '\''shell(tail)'\'' --allow-tool '\''shell(uniq)'\'' --allow-tool '\''shell(wc -l pkg/**/*.go)'\'' --allow-tool '\''shell(wc -l pkg/*/*.go)'\'' --allow-tool '\''shell(wc -l pkg/*/README.md)'\'' --allow-tool '\''shell(wc)'\'' --allow-tool '\''shell(yq)'\'' --allow-tool write --allow-all-paths --add-dir "${GITHUB_WORKSPACE}" --prompt-file /tmp/gh-aw/aw-prompts/prompt.txt' 2>&1 | tee -a /tmp/gh-aw/agent-stdio.log
         env:
           COPILOT_AGENT_RUNNER_TYPE: STANDALONE
+          COPILOT_API_KEY: dummy-byok-key-for-offline-mode
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || '' }}
+          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_AGENT_COPILOT || 'claude-sonnet-4.6' }}
           GH_AW_MCP_CONFIG: /home/runner/.copilot/mcp-config.json
           GH_AW_PHASE: agent
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
@@ -1228,8 +1229,9 @@ jobs:
             -- /bin/bash -c 'GH_AW_NODE_EXEC="${GH_AW_NODE_BIN:-}"; if [ -z "$GH_AW_NODE_EXEC" ] || [ ! -x "$GH_AW_NODE_EXEC" ]; then GH_AW_NODE_EXEC="$(command -v node 2>/dev/null || echo node)"; fi; "$GH_AW_NODE_EXEC" ${RUNNER_TEMP}/gh-aw/actions/copilot_driver.cjs /usr/local/bin/copilot --add-dir /tmp/gh-aw/ --log-level all --log-dir /tmp/gh-aw/sandbox/agent/logs/ --disable-builtin-mcps --no-ask-user --allow-all-tools --add-dir "${GITHUB_WORKSPACE}" --prompt-file /tmp/gh-aw/aw-prompts/prompt.txt' 2>&1 | tee -a /tmp/gh-aw/threat-detection/detection.log
         env:
           COPILOT_AGENT_RUNNER_TYPE: STANDALONE
+          COPILOT_API_KEY: dummy-byok-key-for-offline-mode
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_DETECTION_COPILOT || '' }}
+          COPILOT_MODEL: ${{ vars.GH_AW_MODEL_DETECTION_COPILOT || 'claude-sonnet-4.6' }}
           GH_AW_PHASE: detection
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
           GH_AW_VERSION: dev
@@ -1334,6 +1336,7 @@ jobs:
       GH_AW_EFFECTIVE_TOKENS: ${{ needs.agent.outputs.effective_tokens }}
       GH_AW_ENGINE_ID: "copilot"
       GH_AW_ENGINE_MODEL: ${{ needs.agent.outputs.model }}
+      GH_AW_ENGINE_VERSION: "1.0.21"
       GH_AW_SAFE_OUTPUT_MESSAGES: "{\"footer\":\"\\u003e 📚 *Specification review by [{workflow_name}]({run_url})*{effective_tokens_suffix}{history_link}\",\"runStarted\":\"📚 Specification Librarian online! [{workflow_name}]({run_url}) is reviewing all package specifications...\",\"runSuccess\":\"✅ Specification review complete! [{workflow_name}]({run_url}) has audited all package specs. Report delivered! 📋\",\"runFailure\":\"📚 Specification review failed! [{workflow_name}]({run_url}) {status}.\"}"
       GH_AW_TRACKER_ID: "spec-librarian"
       GH_AW_WORKFLOW_ID: "spec-librarian"
