@@ -706,6 +706,48 @@ func TestBuildDetectionEngineExecutionStepWithThreatDetectionEngine(t *testing.T
 	}
 }
 
+func TestBuildDetectionEngineExecutionStepCodexIncludesMCPSetup(t *testing.T) {
+	compiler := NewCompiler()
+
+	data := &WorkflowData{
+		AI: "codex",
+		SafeOutputs: &SafeOutputsConfig{
+			ThreatDetection: &ThreatDetectionConfig{},
+		},
+	}
+
+	steps := compiler.buildDetectionEngineExecutionStep(data)
+	if len(steps) == 0 {
+		t.Fatal("Expected non-empty detection engine steps")
+	}
+
+	stepsString := strings.Join(steps, "")
+	if !strings.Contains(stepsString, "Start MCP Gateway") {
+		t.Errorf("Expected Codex detection steps to include MCP setup, got:\n%s", stepsString)
+	}
+	if !strings.Contains(stepsString, "model_provider = \"openai-proxy\"") {
+		t.Errorf("Expected Codex detection MCP config to include openai-proxy model provider, got:\n%s", stepsString)
+	}
+}
+
+func TestBuildDetectionJobStepsCodexAvoidsDuplicateContainerPullStep(t *testing.T) {
+	compiler := NewCompiler()
+
+	data := &WorkflowData{
+		AI: "codex",
+		SafeOutputs: &SafeOutputsConfig{
+			ThreatDetection: &ThreatDetectionConfig{},
+		},
+	}
+
+	steps := compiler.buildDetectionJobSteps(data)
+	stepsString := strings.Join(steps, "")
+
+	if count := strings.Count(stepsString, "name: Download container images"); count != 1 {
+		t.Errorf("Expected exactly one 'Download container images' step for Codex detection, got %d.\n%s", count, stepsString)
+	}
+}
+
 func TestBuildUploadDetectionLogStep(t *testing.T) {
 	compiler := NewCompiler()
 
