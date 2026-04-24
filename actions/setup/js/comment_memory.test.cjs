@@ -1,7 +1,24 @@
 // @ts-check
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import path from "path";
+import { fileURLToPath } from "url";
 
 describe("comment_memory", () => {
+  let originalPromptsDir;
+
+  beforeAll(() => {
+    originalPromptsDir = process.env.GH_AW_PROMPTS_DIR;
+    process.env.GH_AW_PROMPTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../md");
+  });
+
+  afterAll(() => {
+    if (originalPromptsDir === undefined) {
+      delete process.env.GH_AW_PROMPTS_DIR;
+      return;
+    }
+    process.env.GH_AW_PROMPTS_DIR = originalPromptsDir;
+  });
+
   it("sanitizes valid memory IDs", async () => {
     const module = await import("./comment_memory.cjs");
     expect(module.sanitizeMemoryID("Session_1")).toBe("Session_1");
@@ -28,6 +45,7 @@ describe("comment_memory", () => {
     });
     expect(body).toContain("### Comment Memory");
     expect(body).toContain('<gh-aw-comment-memory id="default">');
+    expect(body).toContain("``````");
     expect(body).toContain("Hello world");
     expect(body).toContain("</gh-aw-comment-memory>");
   });
@@ -46,6 +64,7 @@ describe("comment_memory", () => {
     });
     expect(body).toContain("### Comment Memory");
     expect(body).toContain('<gh-aw-comment-memory id="session">');
+    expect(body).toContain("``````");
     expect(body).toContain("Persist me");
     expect(body).toContain("> [!NOTE]");
     expect(body).toContain("> <summary>What this comment does</summary>");

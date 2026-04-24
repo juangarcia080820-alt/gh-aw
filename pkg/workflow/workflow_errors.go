@@ -63,7 +63,9 @@ func (e *WorkflowValidationError) Error() string {
 
 // NewValidationError creates a new validation error with context
 func NewValidationError(field, value, reason, suggestion string) *WorkflowValidationError {
-	errorHelpersLog.Printf("Creating validation error: field=%s, reason=%s", field, reason)
+	if errorHelpersLog.Enabled() {
+		errorHelpersLog.Printf("Creating validation error: field=%s, reason=%s", field, reason)
+	}
 	return &WorkflowValidationError{
 		Field:      field,
 		Value:      value,
@@ -168,7 +170,9 @@ func (e *ConfigurationError) Error() string {
 
 // NewConfigurationError creates a new configuration error with context
 func NewConfigurationError(configKey, value, reason, suggestion string) *ConfigurationError {
-	errorHelpersLog.Printf("Creating configuration error: configKey=%s, reason=%s", configKey, reason)
+	if errorHelpersLog.Enabled() {
+		errorHelpersLog.Printf("Creating configuration error: configKey=%s, reason=%s", configKey, reason)
+	}
 	return &ConfigurationError{
 		ConfigKey:  configKey,
 		Value:      value,
@@ -189,7 +193,9 @@ type ErrorCollector struct {
 // NewErrorCollector creates a new error collector
 // If failFast is true, the collector will stop at the first error
 func NewErrorCollector(failFast bool) *ErrorCollector {
-	errorAggregationLog.Printf("Creating error collector: fail_fast=%v", failFast)
+	if errorAggregationLog.Enabled() {
+		errorAggregationLog.Printf("Creating error collector: fail_fast=%v", failFast)
+	}
 	return &ErrorCollector{
 		errors:   make([]error, 0),
 		failFast: failFast,
@@ -204,10 +210,14 @@ func (c *ErrorCollector) Add(err error) error {
 		return nil
 	}
 
-	errorAggregationLog.Printf("Adding error to collector: %v", err)
+	if errorAggregationLog.Enabled() {
+		errorAggregationLog.Printf("Adding error to collector: %v", err)
+	}
 
 	if c.failFast {
-		errorAggregationLog.Print("Fail-fast enabled, returning error immediately")
+		if errorAggregationLog.Enabled() {
+			errorAggregationLog.Print("Fail-fast enabled, returning error immediately")
+		}
 		return err
 	}
 
@@ -227,7 +237,9 @@ func (c *ErrorCollector) Error() error {
 		return nil
 	}
 
-	errorAggregationLog.Printf("Aggregating %d errors", len(c.errors))
+	if errorAggregationLog.Enabled() {
+		errorAggregationLog.Printf("Aggregating %d errors", len(c.errors))
+	}
 
 	if len(c.errors) == 1 {
 		return c.errors[0]
@@ -244,7 +256,9 @@ func (c *ErrorCollector) FormattedError(category string) error {
 		return nil
 	}
 
-	errorAggregationLog.Printf("Formatting %d errors for category: %s", len(c.errors), category)
+	if errorAggregationLog.Enabled() {
+		errorAggregationLog.Printf("Formatting %d errors for category: %s", len(c.errors), category)
+	}
 
 	if len(c.errors) == 1 {
 		return c.errors[0]
@@ -267,7 +281,9 @@ type SharedWorkflowError struct {
 // Error implements the error interface
 // Returns a formatted info message explaining that this is a shared workflow
 func (e *SharedWorkflowError) Error() string {
-	sharedWorkflowLog.Printf("Formatting info message for shared workflow: %s", e.Path)
+	if sharedWorkflowLog.Enabled() {
+		sharedWorkflowLog.Printf("Formatting info message for shared workflow: %s", e.Path)
+	}
 
 	filename := filepath.Base(e.Path)
 

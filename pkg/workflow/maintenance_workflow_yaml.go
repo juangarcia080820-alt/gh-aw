@@ -384,8 +384,9 @@ jobs:
 `)
 
 	yaml.WriteString(generateInstallCLISteps(actionMode, version, actionTag, resolver))
-	yaml.WriteString(`      - name: Cache activity report logs
-        uses: ` + getActionPin("actions/cache") + `
+	yaml.WriteString(`      - name: Restore activity report logs cache
+        id: activity_report_logs_cache
+        uses: ` + getActionPin("actions/cache/restore") + `
         with:
           path: ./.cache/gh-aw/activity-report-logs
           key: ${{ runner.os }}-activity-report-logs-${{ github.repository }}-${{ github.ref_name }}-${{ github.run_id }}
@@ -393,19 +394,67 @@ jobs:
             ${{ runner.os }}-activity-report-logs-${{ github.repository }}-
             ${{ runner.os }}-activity-report-logs-
 `)
-	yaml.WriteString(`      - name: Generate agentic workflow activity report
-        uses: ` + getCachedActionPinFromResolver("actions/github-script", resolver) + `
+	yaml.WriteString(`      - name: Download activity report logs
+        timeout-minutes: 20
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_AW_CMD_PREFIX: ` + getCLICmdPrefix(actionMode) + `
-          GH_AW_ACTIVITY_REPORT_OUTPUT_DIR: ./.cache/gh-aw/activity-report-logs
+        run: |
+          ${GH_AW_CMD_PREFIX} logs \
+            --repo "${{ github.repository }}" \
+            --start-date -1w \
+            --count 100 \
+            --output ./.cache/gh-aw/activity-report-logs \
+            --format markdown \
+            > ./.cache/gh-aw/activity-report-logs/report.md
+
+      - name: Save activity report logs cache
+        if: ${{ always() }}
+        uses: ` + getActionPin("actions/cache/save") + `
+        with:
+          path: ./.cache/gh-aw/activity-report-logs
+          key: ${{ steps.activity_report_logs_cache.outputs.cache-primary-key }}
+
+      - name: Generate activity report issue
+        uses: ` + getCachedActionPinFromResolver("actions/github-script", resolver) + `
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
-            setupGlobals(core, github, context, exec, io, getOctokit);
-            const { main } = require('${{ runner.temp }}/gh-aw/actions/run_activity_report.cjs');
-            await main();
+            const fs = require('node:fs');
+            const reportPath = './.cache/gh-aw/activity-report-logs/report.md';
+            if (!fs.existsSync(reportPath)) {
+              core.warning('Activity report markdown not found at ' + reportPath + '; skipping issue creation.');
+              return;
+            }
+            let reportBody = '';
+            try {
+              reportBody = fs.readFileSync(reportPath, 'utf8').trim();
+            } catch (error) {
+              core.warning('Failed to read activity report markdown at ' + reportPath + ': ' + error.message);
+              return;
+            }
+            if (!reportBody) {
+              core.warning('Activity report markdown is empty at ' + reportPath + '; skipping issue creation.');
+              return;
+            }
+            const repoSlug = context.repo.owner + '/' + context.repo.repo;
+            const body = [
+              '### Agentic workflow activity report',
+              '',
+              'Repository: ' + repoSlug,
+              'Generated at: ' + new Date().toISOString(),
+              '',
+              reportBody,
+            ].join('\n');
+            const createdIssue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '[aw] agentic status report',
+              body,
+              labels: ['agentic-workflows'],
+            });
+            core.info('Created issue #' + createdIssue.data.number + ': ' + createdIssue.data.html_url);
 `)
 
 	// Add close_agentic_workflows_issues job for workflow_dispatch with operation == 'close_agentic_workflows_issues'
