@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import { createHandlers } from "./safe_outputs_handlers.cjs";
 
 // Mock the global objects that GitHub Actions provides
@@ -587,6 +588,34 @@ describe("safe_outputs_handlers", () => {
   });
 
   describe("pushToPullRequestBranchHandler", () => {
+    function createSideRepoWithTrackedAndLocalCommits() {
+      const targetRepoDir = path.join(testWorkspaceDir, "target-repo");
+      fs.mkdirSync(targetRepoDir, { recursive: true });
+
+      execSync("git init -b main", { cwd: targetRepoDir, stdio: "pipe" });
+      execSync("git config user.email 'test@example.com'", { cwd: targetRepoDir, stdio: "pipe" });
+      execSync("git config user.name 'Test User'", { cwd: targetRepoDir, stdio: "pipe" });
+
+      fs.writeFileSync(path.join(targetRepoDir, "README.md"), "base\n");
+      execSync("git add README.md", { cwd: targetRepoDir, stdio: "pipe" });
+      execSync("git commit -m 'base commit'", { cwd: targetRepoDir, stdio: "pipe" });
+
+      execSync("git checkout -b feature/test-change", { cwd: targetRepoDir, stdio: "pipe" });
+      fs.writeFileSync(path.join(targetRepoDir, "README.md"), "tracked\n");
+      execSync("git add README.md", { cwd: targetRepoDir, stdio: "pipe" });
+      execSync("git commit -m 'tracked commit'", { cwd: targetRepoDir, stdio: "pipe" });
+      const trackedCommit = execSync("git rev-parse HEAD", { cwd: targetRepoDir, stdio: "pipe" }).toString().trim();
+
+      execSync("git remote add origin https://github.com/test-owner/test-repo.git", { cwd: targetRepoDir, stdio: "pipe" });
+      execSync(`git update-ref refs/remotes/origin/feature/test-change ${trackedCommit}`, { cwd: targetRepoDir, stdio: "pipe" });
+
+      fs.writeFileSync(path.join(targetRepoDir, "README.md"), "local-only\n");
+      execSync("git add README.md", { cwd: targetRepoDir, stdio: "pipe" });
+      execSync("git commit -m 'local only commit'", { cwd: targetRepoDir, stdio: "pipe" });
+
+      return { targetRepoDir };
+    }
+
     it("should be defined", () => {
       expect(handlers.pushToPullRequestBranchHandler).toBeDefined();
     });
@@ -635,6 +664,71 @@ describe("safe_outputs_handlers", () => {
       expect(responseData.details).toContain("git add");
       expect(responseData.details).toContain("git commit");
       expect(responseData.details).toContain("push_to_pull_request_branch");
+    });
+
+    it("should return error when repo checkout is not found for explicit repo", async () => {
+      const result = await handlers.pushToPullRequestBranchHandler({
+        branch: "main",
+        repo: "test-owner/test-repo",
+      });
+
+      expect(result.isError).toBe(true);
+      const responseData = JSON.parse(result.content[0].text);
+      expect(responseData.result).toBe("error");
+      expect(responseData.error).toContain("Repository checkout not found for test-owner/test-repo");
+      expect(responseData.error).toContain("actions/checkout");
+      expect(responseData.error).toContain("'path' input");
+    });
+
+    it("should detect branch from the checked out target repo when repo is provided", async () => {
+      const { targetRepoDir } = createSideRepoWithTrackedAndLocalCommits();
+
+      process.env.GITHUB_BASE_REF = "main";
+      try {
+        const result = await handlers.pushToPullRequestBranchHandler({
+          branch: "main",
+          repo: "test-owner/test-repo",
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(mockServer.debug).toHaveBeenCalledWith(expect.stringContaining(`Selected checkout folder for test-owner/test-repo: ${targetRepoDir}`));
+        expect(mockServer.debug).toHaveBeenCalledWith(expect.stringContaining("detecting actual working branch: feature/test-change"));
+        expect(mockAppendSafeOutput).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "push_to_pull_request_branch",
+            branch: "feature/test-change",
+          })
+        );
+      } finally {
+        delete process.env.GITHUB_BASE_REF;
+      }
+    });
+
+    it("should include repo slug in incremental patch filename for side-repo checkout", async () => {
+      const { targetRepoDir } = createSideRepoWithTrackedAndLocalCommits();
+
+      process.env.GITHUB_BASE_REF = "main";
+      try {
+        const result = await handlers.pushToPullRequestBranchHandler({
+          branch: "feature/test-change",
+          repo: "test-owner/test-repo",
+        });
+
+        expect(result.isError).toBeFalsy();
+        const responseData = JSON.parse(result.content[0].text);
+        expect(responseData.result).toBe("success");
+        expect(path.basename(responseData.patch.path)).toBe("aw-test-owner-test-repo-feature-test-change.patch");
+
+        expect(mockAppendSafeOutput).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "push_to_pull_request_branch",
+            repo_cwd: targetRepoDir,
+            patch_path: expect.stringContaining("aw-test-owner-test-repo-feature-test-change.patch"),
+          })
+        );
+      } finally {
+        delete process.env.GITHUB_BASE_REF;
+      }
     });
   });
 

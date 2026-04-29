@@ -211,6 +211,7 @@ The YAML frontmatter supports these fields:
 - **`name:`** - Workflow name (string)
 - **`pre-steps:`** - Custom workflow steps to run at the very beginning of the agent job, before checkout (object). Use for token minting or setup that must happen before the repository is checked out. Step outputs are available via `${{ steps.<id>.outputs.<name> }}` and can be referenced in `checkout.github-token` to avoid masked-value cross-job boundary issues. Same security restrictions apply as for `steps:`.
 - **`steps:`** - Custom workflow steps before AI execution (object). **Security Notice**: Custom steps run OUTSIDE the firewall sandbox with standard GitHub Actions security but NO network egress controls. Use only for deterministic data preparation, not agentic compute. **Secrets restriction**: Using `${{ secrets.* }}` expressions (other than `secrets.GITHUB_TOKEN`) in custom steps is an error in strict mode and a warning otherwise — move secret-dependent operations to a separate job outside the agent job.
+- **`pre-agent-steps:`** - Custom workflow steps to run before MCP gateway startup (object or array). Use when preparation must install or configure MCP dependencies before the gateway starts. Same security restrictions apply as for `steps:`.
 - **`post-steps:`** - Custom workflow steps after AI execution (object). **Security Notice**: Post-execution steps run OUTSIDE the firewall sandbox. Use only for deterministic cleanup, artifact uploads, or notifications—not agentic compute or untrusted AI execution. Same secrets restriction applies as for `steps:`.
 - **`environment:`** - Environment that the job references for protection rules (string or object)
 - **`container:`** - Container to run job steps in (string or object)
@@ -292,8 +293,40 @@ The YAML frontmatter supports these fields:
   - The frontmatter hash covers the entire markdown body when enabled, so any content change invalidates the hash
   - **Required for repository rulesets**: Workflows used as required status checks in repository rulesets run without access to repository files at runtime. Set `inlined-imports: true` to bundle all imported content at compile time to avoid "Runtime import file not found" errors
   - **Constraint**: Cannot be combined with agent file imports (`.github/agents/` files). Remove any custom agent file imports before enabling
+- **`import-schema:`** - Define typed input parameters for this shared workflow (object). Use when other workflows import this one via the `uses:`/`with:` syntax (see [Imports Field](#imports-field)).
+  - Parameters are accessible inside the shared workflow via `${{ github.aw.import-inputs.<name> }}` expressions
+  - Object inputs (type: `object`) allow one-level deep sub-fields: `${{ github.aw.import-inputs.<name>.<subkey> }}`
+  - Fields per parameter:
+    - `type:` - Input type: `string`, `number`, `boolean`, `choice`, or `array`
+    - `description:` - Human-readable parameter description
+    - `required:` - Whether the input is required when imported (default: `false`)
+    - `default:` - Default value when not provided
+    - `options:` - Allowed values for `choice` type inputs
+  - Example:
+
+    ```yaml
+    import-schema:
+      environment:
+        type: choice
+        description: "Target environment"
+        options: [dev, staging, prod]
+        required: true
+      max-issues:
+        type: number
+        default: 5
+    ```
+
 - **`mcp-servers:`** - MCP (Model Context Protocol) server definitions (object)
   - Defines custom MCP servers for additional tools beyond built-in ones
+
+- **`private:`** - Mark this workflow as private, preventing it from being shared via `gh aw add` (boolean, default: `false`)
+  - Example: `private: true`
+
+- **`redirect:`** - Workflow relocation path for updates (string). When present, `gh aw update` follows this location and rewrites the `source:` field. Format: `owner/repo/path@ref` or full GitHub URL.
+  - Example: `redirect: "org/agentics/workflows/my-workflow-v2.md@main"`
+
+- **`resources:`** - Additional workflow or action files fetched alongside this workflow when running `gh aw add` (array). Entries are relative paths from the same directory to `.md` or `.yml`/`.yaml` files.
+  - Example: `resources: [shared/tool-setup.md, shared/mcp/tavily.md]`
 
 - **`tracker-id:`** - Optional identifier to tag all created assets (string)
   - Must be at least 8 characters and contain only alphanumeric characters, hyphens, and underscores
@@ -405,12 +438,16 @@ The YAML frontmatter supports these fields:
   - Each job can have: `name`, `runs-on`, `steps`, `needs`, `if`, `env`, `permissions`, `timeout-minutes`, etc.
   - For most agentic workflows, jobs are auto-generated; only specify this for advanced multi-job workflows
   - **Security Notice**: Custom jobs run OUTSIDE the firewall sandbox. Execute with standard GitHub Actions security but NO network egress controls. Use only for deterministic preprocessing, data fetching, or static analysis—not agentic compute or untrusted AI execution.
+  - **`pre-steps:`** - Steps injected after compiler-generated setup and before any `steps:` in a custom or built-in job (array). For built-in jobs (`activation`, `pre_activation`), injected after the `id: setup` step and before the first checkout. Imported `pre-steps` run before main workflow `pre-steps`.
   - Example:
 
     ```yaml
     jobs:
       custom-job:
         runs-on: ubuntu-latest
+        pre-steps:
+          - name: Pre-flight setup
+            run: echo "runs before checkout"
         steps:
           - name: Custom step
             run: echo "Custom job"
@@ -661,6 +698,7 @@ The YAML frontmatter supports these fields:
         title-prefix: "[ai] "           # Optional: prefix for PR titles
         labels: [automation, ai-agent]  # Optional: labels to attach to PRs
         reviewers: [user1, copilot]     # Optional: reviewers (use 'copilot' for bot)
+        team-reviewers: [platform-team] # Optional: team slugs to assign as reviewers
         draft: true                     # Optional: create as draft PR (defaults to true)
         if-no-changes: "warn"           # Optional: "warn" (default), "error", or "ignore"
         allow-empty: false              # Optional: create PR with empty branch, no changes required (default: false)
@@ -831,12 +869,13 @@ The YAML frontmatter supports these fields:
     safe-outputs:
       add-reviewer:
         reviewers: [user1, copilot]     # Optional: restrict to specific reviewers
+        team-reviewers: [platform-team] # Optional: allowed team slugs
         max: 3                          # Optional: max reviewers (default: 3)
         target: "*"                     # Optional: "triggering" (default), "*", or number
         target-repo: "owner/repo"       # Optional: cross-repository
     ```
 
-    Use `reviewers: copilot` to assign Copilot PR reviewer bot. Requires PAT as `COPILOT_GITHUB_TOKEN`.
+    At least one of `reviewers` or `team-reviewers` must be present in agent output. Use `reviewers: copilot` to assign Copilot PR reviewer bot. Requires PAT as `COPILOT_GITHUB_TOKEN`.
   - `assign-milestone:` - Assign issues to milestones
 
     ```yaml
@@ -2184,6 +2223,19 @@ imports:
 ---
 ```
 
+**Object form with inputs** — Use `path:`/`uses:` + `with:`/`inputs:` to pass values to shared workflows that define an `import-schema:`:
+
+```yaml
+imports:
+  - path: shared/tool-setup.md
+    with:
+      environment: staging
+      max-issues: 3
+  - uses: shared/security-notice.md  # 'uses' is an alias for 'path'
+```
+
+Inside the imported workflow, access values via `${{ github.aw.import-inputs.<name> }}`.
+
 ### Import File Structure
 
 Import files are in `.github/workflows/shared/` and can contain:
@@ -2201,7 +2253,7 @@ The following frontmatter fields in imported files are merged into the importing
 - `checkout:` - Checkout configurations appended (main workflow's checkouts take precedence)
 - `github-app:` - Top-level GitHub App credentials (first-wins across imports)
 - `on.github-app:` - Activation GitHub App credentials (first-wins across imports)
-- `steps:`, `pre-steps:`, `post-steps:` - Steps appended in import order
+- `steps:`, `pre-steps:`, `pre-agent-steps:`, `post-steps:` - Steps appended in import order
 - `runtimes:`, `network:`, `permissions:`, `services:`, `cache:`, `features:`, `mcp-servers:`
 
 Example import file:

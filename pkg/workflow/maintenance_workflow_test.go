@@ -384,15 +384,48 @@ func TestGenerateMaintenanceWorkflow_OperationJobConditions(t *testing.T) {
 			t.Errorf("Job activity_report should set timeout-minutes: 120 in:\n%s", activityReportSection)
 		}
 	}
-	if !strings.Contains(yaml, "Cache activity report logs") {
-		t.Errorf("Job activity_report should include a cache step in:\n%s", yaml)
+	if !strings.Contains(yaml, "Restore activity report logs cache") {
+		t.Errorf("Job activity_report should include a cache restore step in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "Save activity report logs cache") {
+		t.Errorf("Job activity_report should include a cache save step in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "if: ${{ always() }}") {
+		t.Errorf("Job activity_report should save cache even when earlier steps fail in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "steps.activity_report_logs_cache.outputs.cache-primary-key") {
+		t.Errorf("Job activity_report cache save step should use cache primary key output in:\n%s", yaml)
 	}
 	if !strings.Contains(yaml, "${{ github.run_id }}") {
 		t.Errorf("Job activity_report cache key should include run_id for latest-cache resolution in:\n%s", yaml)
 	}
 
-	if !strings.Contains(yaml, "GH_AW_ACTIVITY_REPORT_OUTPUT_DIR: ./.cache/gh-aw/activity-report-logs") {
-		t.Errorf("Job activity_report should set GH_AW_ACTIVITY_REPORT_OUTPUT_DIR in:\n%s", yaml)
+	if !strings.Contains(yaml, "Download activity report logs") {
+		t.Errorf("Job activity_report should include direct logs download step in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "timeout-minutes: 20") {
+		t.Errorf("Job activity_report logs download step should set timeout-minutes: 20 in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "${GH_AW_CMD_PREFIX} logs") {
+		t.Errorf("Job activity_report should run gh aw logs directly in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "--start-date -1w") {
+		t.Errorf("Job activity_report gh aw logs command should include --start-date -1w in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "--count 100") {
+		t.Errorf("Job activity_report gh aw logs command should include --count 100 in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "--format markdown") {
+		t.Errorf("Job activity_report gh aw logs command should include --format markdown in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "./.cache/gh-aw/activity-report-logs/report.md") {
+		t.Errorf("Job activity_report gh aw logs command should write report markdown output to report.md in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "Generate activity report issue") {
+		t.Errorf("Job activity_report should include issue generation step after cache save in:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "title: '[aw] agentic status report'") {
+		t.Errorf("Job activity_report issue generation step should create the activity report issue title in:\n%s", yaml)
 	}
 
 	// close_agentic_workflows_issues job should be triggered when operation == 'close_agentic_workflows_issues'

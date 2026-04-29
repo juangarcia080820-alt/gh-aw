@@ -5,11 +5,13 @@
 package actionpins
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -39,9 +41,17 @@ type ActionPin struct {
 	Inputs  map[string]*ActionYAMLInput `json:"inputs,omitempty"`
 }
 
+// ContainerPin represents a pinned container image reference.
+type ContainerPin struct {
+	Image       string `json:"image"`
+	Digest      string `json:"digest"`
+	PinnedImage string `json:"pinned_image"`
+}
+
 // ActionPinsData represents the structure of the embedded JSON file.
 type ActionPinsData struct {
-	Entries map[string]ActionPin `json:"entries"`
+	Entries    map[string]ActionPin    `json:"entries"`
+	Containers map[string]ContainerPin `json:"containers,omitempty"`
 }
 
 // SHAResolver resolves a GitHub Action's commit SHA for a given version tag.
@@ -89,6 +99,7 @@ type PinContext struct {
 var (
 	cachedActionPins       []ActionPin
 	cachedActionPinsByRepo map[string][]ActionPin
+	cachedContainerPins    map[string]ContainerPin
 	actionPinsOnce         sync.Once
 )
 
@@ -106,16 +117,13 @@ func getActionPins() []ActionPin {
 			log.Printf("Found %d key/version mismatches in action_pins.json", n)
 		}
 
-		pins := make([]ActionPin, 0, len(data.Entries))
-		for _, pin := range data.Entries {
-			pins = append(pins, pin)
-		}
+		pins := slices.Collect(maps.Values(data.Entries))
 
-		sort.Slice(pins, func(i, j int) bool {
-			if pins[i].Version != pins[j].Version {
-				return pins[i].Version > pins[j].Version
+		slices.SortFunc(pins, func(a, b ActionPin) int {
+			if a.Version != b.Version {
+				return cmp.Compare(b.Version, a.Version) // descending by version
 			}
-			return pins[i].Repo < pins[j].Repo
+			return cmp.Compare(a.Repo, b.Repo)
 		})
 
 		log.Printf("Successfully unmarshaled and sorted %d action pins from JSON", len(pins))
@@ -123,6 +131,12 @@ func getActionPins() []ActionPin {
 
 		cachedActionPinsByRepo = buildByRepoIndex(pins)
 		log.Printf("Built per-repo action pin index for %d repos", len(cachedActionPinsByRepo))
+
+		cachedContainerPins = data.Containers
+		if cachedContainerPins == nil {
+			cachedContainerPins = make(map[string]ContainerPin)
+		}
+		log.Printf("Loaded %d container pins from JSON", len(cachedContainerPins))
 	})
 
 	return cachedActionPins
@@ -156,10 +170,10 @@ func buildByRepoIndex(pins []ActionPin) map[string][]ActionPin {
 		byRepo[pin.Repo] = append(byRepo[pin.Repo], pin)
 	}
 	for repo, repoPins := range byRepo {
-		sort.Slice(repoPins, func(i, j int) bool {
-			v1 := strings.TrimPrefix(repoPins[i].Version, "v")
-			v2 := strings.TrimPrefix(repoPins[j].Version, "v")
-			return semverutil.Compare(v1, v2) > 0
+		slices.SortFunc(repoPins, func(a, b ActionPin) int {
+			v1 := strings.TrimPrefix(a.Version, "v")
+			v2 := strings.TrimPrefix(b.Version, "v")
+			return semverutil.Compare(v2, v1) // descending by semver
 		})
 		byRepo[repo] = repoPins
 	}
@@ -180,6 +194,13 @@ func GetActionPinByRepo(repo string) (ActionPin, bool) {
 		return ActionPin{}, false
 	}
 	return pins[0], true
+}
+
+// GetContainerPin returns a pinned container image by its original image reference.
+func GetContainerPin(image string) (ContainerPin, bool) {
+	getActionPins()
+	pin, ok := cachedContainerPins[image]
+	return pin, ok
 }
 
 // getLatestActionPinReference returns the pinned reference for the latest version of the repo.

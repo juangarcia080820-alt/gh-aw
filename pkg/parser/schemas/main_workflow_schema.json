@@ -1903,6 +1903,18 @@
                 }
               ]
             },
+            "needs": {
+              "type": "array",
+              "description": "Explicit additional custom workflow jobs that pre_activation and activation should depend on.",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-zA-Z_][a-zA-Z0-9_-]*$"
+              },
+              "additionalItems": false,
+              "uniqueItems": true,
+              "default": [],
+              "examples": [["secrets_fetcher"]]
+            },
             "steps": {
               "type": "array",
               "description": "Steps to inject into the pre-activation job. These steps run after all built-in checks (membership, stop-time, skip-if, etc.) and their results are exposed as pre-activation outputs. Use 'id' on steps to reference their results via needs.pre_activation.outputs.<id>_result.",
@@ -5761,6 +5773,13 @@
                     }
                   ],
                   "description": "Optional assignee(s) for a fallback issue created when pull request creation cannot proceed, including protected-files fallback-to-issue and pull request creation or push failures. Accepts either a single string or an array of usernames."
+                },
+                "fallback-labels": {
+                  "type": "array",
+                  "description": "Optional labels to apply to fallback issues created when pull request creation cannot proceed. When omitted, fallback issues reuse pull request labels. A managed label is always added for triage.",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 "draft": {
                   "allOf": [

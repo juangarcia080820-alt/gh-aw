@@ -256,6 +256,52 @@ func TestSpec_Types_ActionPinsData(t *testing.T) {
 	assert.Equal(t, "actions/checkout", entry.Repo, "entry Repo should match")
 }
 
+// TestSpec_PublicAPI_ResolveActionPin_EmbeddedMatch validates embedded-only pin resolution returns
+// a formatted reference for a known repository. Spec: "Embedded-only lookup from bundled pin data"
+func TestSpec_PublicAPI_ResolveActionPin_EmbeddedMatch(t *testing.T) {
+	known := "actions/checkout"
+	latestPin, ok := actionpins.GetActionPinByRepo(known)
+	require.True(t, ok, "prerequisite: known repo must be in embedded data")
+
+	ctx := &actionpins.PinContext{StrictMode: false, Warnings: make(map[string]bool)}
+	result, err := actionpins.ResolveActionPin(known, latestPin.Version, ctx)
+	require.NoError(t, err, "embedded-only ResolveActionPin should not error for known pin")
+	assert.NotEmpty(t, result, "should return non-empty pinned reference for known embedded pin")
+	assert.Contains(t, result, latestPin.SHA, "resolved reference should contain the pin SHA")
+}
+
+// TestSpec_PublicAPI_GetActionPins_SPEC_MISMATCH documents a spec-implementation gap.
+// SPEC_MISMATCH: The README specifies GetActionPins() []ActionPin ("Returns all loaded pins")
+// but this function is not implemented. Only GetActionPinsByRepo(repo string) is available.
+// Proxy validation: verify embedded data is non-empty via the available API.
+func TestSpec_PublicAPI_GetActionPins_SPEC_MISMATCH(t *testing.T) {
+	// SPEC_MISMATCH: GetActionPins() documented in README does not exist in the implementation.
+	pins := actionpins.GetActionPinsByRepo("actions/checkout")
+	assert.NotEmpty(t, pins, "embedded pin data should be non-empty (proxy for missing GetActionPins)")
+}
+
+// TestSpec_PublicAPI_GetContainerPin validates the documented GetContainerPin function.
+// Spec: "Returns a pinned container image by its original image reference"
+func TestSpec_PublicAPI_GetContainerPin(t *testing.T) {
+	t.Run("returns false for unknown container image", func(t *testing.T) {
+		_, ok := actionpins.GetContainerPin("does-not-exist/unknown-image:latest")
+		assert.False(t, ok, "should return false for unknown container image")
+	})
+}
+
+// TestSpec_Types_ContainerPin validates the documented ContainerPin type structure.
+// Spec: Image, Digest, PinnedImage fields.
+func TestSpec_Types_ContainerPin(t *testing.T) {
+	pin := actionpins.ContainerPin{
+		Image:       "ghcr.io/some/image:v1",
+		Digest:      "sha256:abc123",
+		PinnedImage: "ghcr.io/some/image@sha256:abc123",
+	}
+	assert.Equal(t, "ghcr.io/some/image:v1", pin.Image, "ContainerPin.Image field")
+	assert.Equal(t, "sha256:abc123", pin.Digest, "ContainerPin.Digest field")
+	assert.Equal(t, "ghcr.io/some/image@sha256:abc123", pin.PinnedImage, "ContainerPin.PinnedImage field")
+}
+
 // TestSpec_ThreadSafety_ConcurrentGetActionPinsByRepo validates that concurrent calls to GetActionPinsByRepo
 // are safe after initialization (sync.Once guarantee from the spec).
 func TestSpec_ThreadSafety_ConcurrentGetActionPinsByRepo(t *testing.T) {

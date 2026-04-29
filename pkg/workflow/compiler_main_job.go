@@ -13,6 +13,11 @@ import (
 
 var compilerMainJobLog = logger.New("workflow:compiler_main_job")
 
+func isBuiltinJobName(jobName string) bool {
+	_, isBuiltIn := constants.KnownBuiltInJobNames[jobName]
+	return isBuiltIn
+}
+
 // buildMainJob creates the main agent job that runs the AI agent with the configured engine and tools.
 // This job depends on the activation job if it exists, and handles the main workflow logic.
 func (c *Compiler) buildMainJob(data *WorkflowData, activationJobCreated bool) (*Job, error) {
@@ -92,8 +97,8 @@ func (c *Compiler) buildMainJob(data *WorkflowData, activationJobCreated bool) (
 	// Custom jobs that depend on agent should run AFTER the agent job, not before it
 	if data.Jobs != nil {
 		for _, jobName := range slices.Sorted(maps.Keys(data.Jobs)) {
-			// Skip jobs.pre-activation (or pre_activation) as it's handled specially
-			if jobName == string(constants.PreActivationJobName) || jobName == "pre-activation" {
+			// Skip built-in jobs as they are handled separately and should not become custom dependencies.
+			if isBuiltinJobName(jobName) {
 				continue
 			}
 
@@ -121,8 +126,8 @@ func (c *Compiler) buildMainJob(data *WorkflowData, activationJobCreated bool) (
 	}
 	referencedJobs := c.getReferencedCustomJobs(contentBuilder.String(), data.Jobs)
 	for _, jobName := range referencedJobs {
-		// Skip jobs.pre-activation (or pre_activation) as it's handled specially
-		if jobName == string(constants.PreActivationJobName) || jobName == "pre-activation" {
+		// Skip built-in jobs as they are handled separately and should not become custom dependencies.
+		if isBuiltinJobName(jobName) {
 			continue
 		}
 

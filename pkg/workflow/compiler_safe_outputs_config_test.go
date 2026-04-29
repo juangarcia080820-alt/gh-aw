@@ -1635,6 +1635,60 @@ func TestCreatePullRequestBaseBranch(t *testing.T) {
 	}
 }
 
+func TestCreatePullRequestFallbackLabels(t *testing.T) {
+	compiler := NewCompiler()
+
+	workflowData := &WorkflowData{
+		Name: "Test Workflow",
+		SafeOutputs: &SafeOutputsConfig{
+			CreatePullRequests: &CreatePullRequestsConfig{
+				BaseSafeOutputConfig: BaseSafeOutputConfig{
+					Max: strPtr("1"),
+				},
+				FallbackLabels: []string{"failure", "automated"},
+			},
+		},
+	}
+
+	var steps []string
+	compiler.addHandlerManagerConfigEnvVar(&steps, workflowData)
+	require.NotEmpty(t, steps, "Steps should be generated")
+	validated := false
+
+	for _, step := range steps {
+		if strings.Contains(step, "GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG") {
+			parts := strings.Split(step, "GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: ")
+			if len(parts) != 2 {
+				continue
+			}
+
+			jsonStr := strings.TrimSpace(parts[1])
+			jsonStr = strings.Trim(jsonStr, "\"")
+			jsonStr = strings.ReplaceAll(jsonStr, "\\\"", "\"")
+
+			var config map[string]map[string]any
+			err := json.Unmarshal([]byte(jsonStr), &config)
+			require.NoError(t, err, "Config JSON should be valid")
+
+			prConfig, ok := config["create_pull_request"]
+			require.True(t, ok, "create_pull_request config should exist")
+
+			fallbackLabelsRaw, ok := prConfig["fallback_labels"]
+			require.True(t, ok, "fallback_labels should be in config")
+
+			fallbackLabels, ok := fallbackLabelsRaw.([]any)
+			require.True(t, ok, "fallback_labels should be an array")
+			require.Len(t, fallbackLabels, 2, "fallback_labels should have expected length")
+			assert.Equal(t, "failure", fallbackLabels[0], "first fallback label should match")
+			assert.Equal(t, "automated", fallbackLabels[1], "second fallback label should match")
+			validated = true
+			break
+		}
+	}
+
+	require.True(t, validated, "fallback_labels validation should run when handler config env var is present")
+}
+
 // TestHandlerConfigAssignToUser tests assign_to_user configuration
 func TestHandlerConfigAssignToUser(t *testing.T) {
 	compiler := NewCompiler()
@@ -2201,7 +2255,7 @@ func TestProtectedFilesExclude(t *testing.T) {
 			name:               "exclude AGENTS.md from create-pull-request",
 			excludeFiles:       []string{"AGENTS.md"},
 			wantExcludedFromPF: []string{"AGENTS.md"},
-			wantPresentInPF:    []string{"package.json", "go.mod", "CODEOWNERS"},
+			wantPresentInPF:    []string{"package.json", "go.mod", "CODEOWNERS", "DESIGN.md"},
 		},
 		{
 			name:               "exclude multiple files",
@@ -2334,4 +2388,17 @@ func TestProtectedFilesExcludePushToPRBranch(t *testing.T) {
 	}
 	assert.NotContains(t, pfStrings, "AGENTS.md", "AGENTS.md should be excluded from protected_files")
 	assert.Contains(t, pfStrings, "package.json", "package.json should still be in protected_files")
+
+	ppRaw, ok := pushConfig["protected_path_prefixes"]
+	require.True(t, ok, "should have protected_path_prefixes field")
+	ppAny, ok := ppRaw.([]any)
+	require.True(t, ok, "protected_path_prefixes should be a slice")
+	ppStrings := make([]string, 0, len(ppAny))
+	for _, v := range ppAny {
+		if s, ok := v.(string); ok {
+			ppStrings = append(ppStrings, s)
+		}
+	}
+	assert.Contains(t, ppStrings, ".githooks/", ".githooks/ should be in protected_path_prefixes by default")
+	assert.Contains(t, ppStrings, ".husky/", ".husky/ should be in protected_path_prefixes by default")
 }

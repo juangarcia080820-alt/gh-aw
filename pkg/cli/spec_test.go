@@ -1009,3 +1009,220 @@ func TestSpec_DesignDecision_StderrDiagnostics(t *testing.T) {
 	names := ValidArtifactSetNames()
 	assert.NotEmpty(t, names, "ValidArtifactSetNames returns data via return value, not stdout")
 }
+
+// TestSpec_PublicAPI_GetAllCodemods validates that GetAllCodemods returns at least one codemod
+// with required fields populated.
+// Spec: "Returns all available codemods"
+func TestSpec_PublicAPI_GetAllCodemods(t *testing.T) {
+	codemods := GetAllCodemods()
+	require.NotEmpty(t, codemods, "GetAllCodemods should return at least one codemod")
+	for _, c := range codemods {
+		assert.NotEmpty(t, c.ID, "each Codemod should have a non-empty ID")
+		assert.NotEmpty(t, c.Name, "each Codemod should have a non-empty Name")
+		assert.NotEmpty(t, c.Description, "each Codemod should have a non-empty Description")
+		assert.NotNil(t, c.Apply, "each Codemod should have a non-nil Apply function")
+	}
+}
+
+// TestSpec_PublicAPI_ResolveArtifactFilter validates that ResolveArtifactFilter expands
+// artifact set aliases to concrete artifact names.
+// Spec: "Expands artifact set aliases to concrete artifact names"
+func TestSpec_PublicAPI_ResolveArtifactFilter(t *testing.T) {
+	t.Run("all returns nil meaning no filter applied", func(t *testing.T) {
+		result := ResolveArtifactFilter([]string{"all"})
+		assert.Nil(t, result, "\"all\" should return nil (no filter — download all artifacts)")
+	})
+
+	t.Run("empty list returns nil meaning no filter applied", func(t *testing.T) {
+		result := ResolveArtifactFilter([]string{})
+		assert.Nil(t, result, "empty input should return nil (no filter — download all artifacts)")
+	})
+
+	t.Run("non-all named set expands to concrete artifact list", func(t *testing.T) {
+		sets := ValidArtifactSetNames()
+		for _, s := range sets {
+			if s == "all" {
+				continue
+			}
+			result := ResolveArtifactFilter([]string{s})
+			assert.NotNil(t, result, "artifact set %q should expand to a concrete list", s)
+			assert.NotEmpty(t, result, "artifact set %q should expand to at least one artifact name", s)
+			break
+		}
+	})
+}
+
+// TestSpec_PublicAPI_GroupRunsByWorkflow validates that a flat slice of runs is grouped by workflow name.
+// Spec: "Groups a flat slice of runs by workflow name"
+func TestSpec_PublicAPI_GroupRunsByWorkflow(t *testing.T) {
+	runs := []WorkflowRun{
+		{WorkflowName: "workflow-a"},
+		{WorkflowName: "workflow-b"},
+		{WorkflowName: "workflow-a"},
+	}
+	grouped := GroupRunsByWorkflow(runs)
+	assert.Len(t, grouped, 2, "should produce two groups for two distinct workflow names")
+	assert.Len(t, grouped["workflow-a"], 2, "workflow-a group should contain two runs")
+	assert.Len(t, grouped["workflow-b"], 1, "workflow-b group should contain one run")
+}
+
+// TestSpec_PublicAPI_ValidateWorkflowIntent validates the documented validation rules.
+// Spec: "Validates the workflow intent string"
+func TestSpec_PublicAPI_ValidateWorkflowIntent(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:    "empty string returns error",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "whitespace-only string returns error",
+			input:   "   ",
+			wantErr: true,
+		},
+		{
+			name:    "string shorter than 20 characters returns error",
+			input:   "too short",
+			wantErr: true,
+		},
+		{
+			name:    "string of exactly 20 characters is valid",
+			input:   "twelve chars here!!!",
+			wantErr: false,
+		},
+		{
+			name:    "string longer than 20 characters is valid",
+			input:   "This is a sufficiently long workflow intent description",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateWorkflowIntent(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err, "ValidateWorkflowIntent(%q) should return error", tt.input)
+			} else {
+				assert.NoError(t, err, "ValidateWorkflowIntent(%q) should not return error", tt.input)
+			}
+		})
+	}
+}
+
+// TestSpec_PublicAPI_UpdateFieldInFrontmatter validates the documented frontmatter field update.
+// Spec: "Sets a field in frontmatter YAML"
+func TestSpec_PublicAPI_UpdateFieldInFrontmatter(t *testing.T) {
+	tests := []struct {
+		name          string
+		content       string
+		fieldName     string
+		fieldValue    string
+		wantErr       bool
+		checkContains string
+	}{
+		{
+			name:          "updates existing field",
+			content:       "---\ndescription: old description\n---\n\n# Content",
+			fieldName:     "description",
+			fieldValue:    "new description",
+			wantErr:       false,
+			checkContains: "new description",
+		},
+		{
+			name:          "adds new field when absent",
+			content:       "---\nengine: copilot\n---\n\n# Content",
+			fieldName:     "description",
+			fieldValue:    "my workflow",
+			wantErr:       false,
+			checkContains: "my workflow",
+		},
+		{
+			// SPEC_AMBIGUITY: The README spec says "Sets a field in frontmatter YAML" without
+			// specifying the error-path for content without frontmatter. The implementation
+			// creates a new frontmatter block in this case rather than returning an error.
+			name:          "creates frontmatter when content has none",
+			content:       "# Just markdown with no frontmatter",
+			fieldName:     "description",
+			fieldValue:    "value",
+			wantErr:       false,
+			checkContains: "value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := UpdateFieldInFrontmatter(tt.content, tt.fieldName, tt.fieldValue)
+			if tt.wantErr {
+				assert.Error(t, err, "UpdateFieldInFrontmatter should return error for %q", tt.name)
+				return
+			}
+			require.NoError(t, err, "UpdateFieldInFrontmatter should not error for %q", tt.name)
+			assert.Contains(t, result, tt.checkContains, "result should contain updated value for %q", tt.name)
+		})
+	}
+}
+
+// TestSpec_PublicAPI_SetFieldInOnTrigger validates the documented on: trigger field update.
+// Spec: "Sets a field inside the on: trigger block"
+func TestSpec_PublicAPI_SetFieldInOnTrigger(t *testing.T) {
+	t.Run("adds on: block when not present", func(t *testing.T) {
+		content := "---\ndescription: my workflow\n---\n\n# Content"
+		result, err := SetFieldInOnTrigger(content, "schedule", "daily")
+		require.NoError(t, err, "SetFieldInOnTrigger should not error when on: block is absent")
+		assert.Contains(t, result, "on:", "result should contain on: block")
+		assert.Contains(t, result, "schedule", "result should contain the new field")
+	})
+
+	t.Run("sets field inside existing on: block", func(t *testing.T) {
+		content := "---\ndescription: my workflow\non:\n    push: true\n---\n\n# Content"
+		result, err := SetFieldInOnTrigger(content, "schedule", "daily")
+		require.NoError(t, err, "SetFieldInOnTrigger should not error with existing on: block")
+		assert.Contains(t, result, "schedule", "result should contain the new field in the on: block")
+	})
+
+	t.Run("returns error when no frontmatter found", func(t *testing.T) {
+		content := "# No frontmatter here"
+		_, err := SetFieldInOnTrigger(content, "schedule", "daily")
+		assert.Error(t, err, "SetFieldInOnTrigger should return error when no frontmatter found")
+	})
+}
+
+// TestSpec_PublicAPI_RemoveFieldFromOnTrigger validates the documented on: trigger field removal.
+// Spec: "Removes a field from the on: trigger block"
+func TestSpec_PublicAPI_RemoveFieldFromOnTrigger(t *testing.T) {
+	t.Run("removes field from existing on: block", func(t *testing.T) {
+		content := "---\ndescription: my workflow\non:\n    schedule: daily\n    push: true\n---\n\n# Content"
+		result, err := RemoveFieldFromOnTrigger(content, "schedule")
+		require.NoError(t, err, "RemoveFieldFromOnTrigger should not error for valid content")
+		assert.NotContains(t, result, "schedule:", "result should not contain removed field")
+		assert.Contains(t, result, "push", "result should retain other on: fields")
+	})
+
+	t.Run("no-op when field is not present", func(t *testing.T) {
+		content := "---\ndescription: my workflow\non:\n    push: true\n---\n\n# Content"
+		result, err := RemoveFieldFromOnTrigger(content, "schedule")
+		require.NoError(t, err, "RemoveFieldFromOnTrigger should not error when field absent")
+		assert.Contains(t, result, "push", "result should retain existing on: fields")
+	})
+}
+
+// TestSpec_PublicAPI_UpdateScheduleInOnBlock validates the documented schedule update.
+// Spec: "Updates the cron schedule in the on: block"
+func TestSpec_PublicAPI_UpdateScheduleInOnBlock(t *testing.T) {
+	t.Run("updates existing schedule expression", func(t *testing.T) {
+		content := "---\ndescription: my workflow\non:\n    schedule:\n    - cron: 0 9 * * 1-5\n---\n\n# Content"
+		result, err := UpdateScheduleInOnBlock(content, "0 10 * * 1-5")
+		require.NoError(t, err, "UpdateScheduleInOnBlock should not error for valid content")
+		assert.Contains(t, result, "0 10 * * 1-5", "result should contain the updated cron expression")
+	})
+
+	t.Run("returns error for content without frontmatter lines", func(t *testing.T) {
+		content := "# Just markdown"
+		_, err := UpdateScheduleInOnBlock(content, "0 9 * * *")
+		assert.Error(t, err, "UpdateScheduleInOnBlock should return error when no frontmatter lines present")
+	})
+}

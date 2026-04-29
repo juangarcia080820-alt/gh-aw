@@ -71,6 +71,10 @@ A built-in tool that provides vector similarity search over documentation files.
 
 Capabilities that an AI agent can use during workflow execution. Tools are configured in the frontmatter and include GitHub operations ([`github:`](/gh-aw/reference/github-tools/)), file editing (`edit:`), web access (`web-fetch:`, `web-search:`), shell commands (`bash:`), browser automation ([`playwright:`](/gh-aw/reference/playwright/)), and custom MCP servers.
 
+### GitHub Access Mode (`tools.github.mode`)
+
+A `tools.github` field that controls how the agent accesses GitHub APIs. Three values are supported: `gh-proxy` (recommended — provides pre-authenticated `gh` CLI prompt guidance without mounting a GitHub MCP server, replacing the deprecated `features.cli-proxy: true`), `local` (Docker-based GitHub MCP server, the legacy default), and `remote` (hosted GitHub MCP server at `api.githubcopilot.com`). Use `gh-proxy` for better performance; use `local` or `remote` when MCP-based GitHub toolsets are required. See [GitHub Tools Reference](/gh-aw/reference/github-tools/).
+
 ## Security and Outputs
 
 ### MCP Scripts
@@ -217,6 +221,10 @@ A field on `create-pull-request` and `push-to-pull-request-branch` safe outputs 
 
 A field on `submit-pull-request-review:` safe outputs that restricts which PR review event types the agent may submit. Accepts an array of `APPROVE`, `COMMENT`, and `REQUEST_CHANGES`. When set, the safe-outputs handler rejects any review event not in the list, providing infrastructure-level enforcement regardless of what the agent attempts to output. If omitted, all three event types are allowed. Preferred default for bot reviews: `allowed-events: [COMMENT]`. Example: `allowed-events: [COMMENT, REQUEST_CHANGES]` prevents the agent from approving PRs. See [Safe Outputs Reference](/gh-aw/reference/safe-outputs/#submit-pr-review-submit-pull-request-review).
 
+### Supersede Older Reviews (`supersede-older-reviews:`)
+
+A field on `submit-pull-request-review:` safe outputs that dismisses older `REQUEST_CHANGES` reviews from the same workflow after posting a replacement review. When `supersede-older-reviews: true` is set, the safe-output handler fetches recent reviews, identifies prior `REQUEST_CHANGES` reviews submitted by the same workflow call, and dismisses them before the new review takes effect. This is best-effort behavior — dismissal failures do not block the new review. Useful when a workflow is configured with `allowed-events: [REQUEST_CHANGES]` and repeated runs would otherwise accumulate blocking reviews. See [Safe Outputs (Pull Requests)](/gh-aw/reference/safe-outputs-pull-requests/#submit-pr-review-submit-pull-request-review).
+
 ### Allowed Files
 
 An exclusive allowlist for `create-pull-request` and `push-to-pull-request-branch` safe outputs. When `allowed-files:` is set to a list of glob patterns, **only** files matching those patterns may be modified — every other file (including normal source files) is refused. This is a restriction, not an exception: listing `.github/workflows/*` does not additionally allow normal source files; it blocks them. Runs independently from [Protected Files](#protected-files): both checks must pass. To modify a protected file, it must both match `allowed-files` and have `protected-files: allowed`. See [Safe Outputs (Pull Requests)](/gh-aw/reference/safe-outputs-pull-requests/#restricting-changes-to-specific-files-with-allowed-files).
@@ -299,7 +307,7 @@ See [Engines Reference](/gh-aw/reference/engines/).
 
 ### Feature Flags (`features:`)
 
-A frontmatter section that enables experimental or optional compiler and runtime behaviors as key-value pairs. Feature flags provide controlled access to new capabilities before they become defaults or are fully stabilized. Common flags include `action-mode` (controls how custom action references are compiled), `copilot-requests` (enables GitHub Actions token authentication for Copilot; currently in **private preview** — will not work unless your account has been onboarded), `byok-copilot` (enables Copilot offline BYOK mode with dummy `COPILOT_API_KEY`, API proxy sidecar, implicit `cli-proxy`, and latest Copilot CLI install), `mcp-gateway` (enables the MCP gateway proxy), `integrity-reactions` (enables reaction-based integrity promotion and demotion), `cli-proxy` (enables CLI proxy mode for integrity enforcement at the network boundary), and `awf-diagnostic-logs` (enables AWF Docker operational diagnostics collection on failure). See [Frontmatter Reference](/gh-aw/reference/frontmatter/#feature-flags-features).
+A frontmatter section that enables experimental or optional compiler and runtime behaviors as key-value pairs. Feature flags provide controlled access to new capabilities before they become defaults or are fully stabilized. Common flags include `action-mode` (controls how custom action references are compiled), `copilot-requests` (enables GitHub Actions token authentication for Copilot; currently in **private preview** — will not work unless your account has been onboarded), `mcp-gateway` (enables the MCP gateway proxy), `integrity-reactions` (enables reaction-based integrity promotion and demotion), `cli-proxy` (enables CLI proxy mode for integrity enforcement at the network boundary), and `awf-diagnostic-logs` (enables AWF Docker operational diagnostics collection on failure). `byok-copilot` is deprecated because Copilot BYOK behavior is now the default for `engine: copilot`. See [Frontmatter Reference](/gh-aw/reference/frontmatter/#feature-flags-features).
 
 ### Fuzzy Scheduling
 
@@ -334,6 +342,10 @@ A frontmatter field that enables distributed tracing for workflow runs via OpenT
 ### Pre-Steps (`jobs.<job-id>.pre-steps`)
 
 Steps injected at a specific lifecycle position within a custom or built-in job's step sequence: after the compiler-generated setup step and before the first checkout or regular `steps`. Defined under `jobs.<job-id>.pre-steps` in workflow frontmatter. For built-in jobs (`activation`, `pre_activation`), pre-steps are inserted after the `setup` step and before the first `actions/checkout` step. When both a main workflow and an imported workflow define `pre-steps` for the same job, imported pre-steps run first. This is distinct from the top-level `pre-steps` field, which injects steps into the agent job only. See [Custom Jobs](/gh-aw/reference/frontmatter/#custom-jobs-jobs).
+
+### Pre-Activation Dependencies (`on.needs:`)
+
+A frontmatter field that declares custom jobs that both the `pre_activation` and `activation` built-in jobs depend on. Use this when credentials or secrets must be fetched by a custom job before activation runs — for example, when `on.github-app` tokens come from a secrets-manager job. Values must reference custom jobs defined in the top-level `jobs:` section; built-in job names are rejected at compile time. See [Triggers Reference](/gh-aw/reference/triggers/).
 
 ### Stop After
 
@@ -493,7 +505,7 @@ A compilation target allowing the gh-aw compiler to run in browser environments 
 
 ### AWF (Agent Workflow Firewall)
 
-The default coding agent sandbox that isolates AI agent execution in a container with network egress control through domain-based access lists. AWF makes the host filesystem and environment variables available inside the container while restricting outbound network access to configured domains. Enabled with `sandbox.agent: awf` (the default when `sandbox` is not specified). See [Sandbox Configuration](/gh-aw/reference/sandbox/).
+The default coding agent sandbox that isolates AI agent execution in a container with network egress control through domain-based access lists. AWF makes the host filesystem and environment variables available inside the container while restricting outbound network access to configured domains. Enabled with `sandbox.agent: awf` (the default when `sandbox` is not specified). Use `sandbox.agent.version` to pin a specific AWF release for reproducible builds. See [Sandbox Configuration](/gh-aw/reference/sandbox/).
 
 ### Bridge Pattern
 
@@ -502,6 +514,10 @@ A cross-repository event forwarding architecture for [SideRepoOps](#siderepoops)
 ### Cache Memory
 
 Persistent storage for workflows preserving data between runs. Configured via `cache-memory:` in tools section with 7-day retention in GitHub Actions cache. See [Cache Memory](/gh-aw/reference/cache-memory/).
+
+### Comment Memory (`tools.comment-memory`)
+
+Persistent agent memory backed by a managed GitHub issue or PR comment. Before each agent run, content from `<gh-aw-comment-memory>` blocks in the target comment is extracted into markdown files under `/tmp/gh-aw/comment-memory/`. Agents edit these files using standard file tools; the safe-output handler automatically upserts the managed comment after the run. Unlike [Cache Memory](#cache-memory) (7-day GitHub Actions cache retention) and [Repo Memory](#repo-memory) (permanent git branch storage), comment memory uses the triggering issue or PR as its backing store — no separate infrastructure required. Configured via `tools.comment-memory:` in frontmatter.
 
 ### Command Triggers
 
